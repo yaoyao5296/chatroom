@@ -24,6 +24,9 @@ dist-ssr
 *.sw?
 .vite
 
+# pnpm store
+.pnpm-store/
+
 # Environment variables (contains email/SMS credentials)
 .env
 *.keystore
