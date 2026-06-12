@@ -1,0 +1,91 @@
+import { useState } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
+import { useAuthStore } from '@/store/authStore'
+import { MessageCircle } from 'lucide-react'
+
+export default function Login() {
+  const [loginId, setLoginId] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const login = useAuthStore((s) => s.login)
+  const navigate = useNavigate()
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      await login(loginId, password)
+      navigate('/friends')
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0F172A] flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-500/10 mb-4">
+            <MessageCircle className="w-8 h-8 text-blue-400" />
+          </div>
+          <h1 className="text-3xl font-bold text-white">ChatRoom</h1>
+          <p className="text-gray-400 mt-2">随时随地，畅快聊天</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="bg-[#1E293B] rounded-2xl p-6 shadow-xl space-y-4">
+          <h2 className="text-xl font-semibold text-white text-center">登录</h2>
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg p-3">
+              {error}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm text-gray-300 mb-1">账号</label>
+            <input
+              type="text"
+              value={loginId}
+              onChange={(e) => setLoginId(e.target.value)}
+              className="w-full px-4 py-2.5 bg-[#0F172A] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+              placeholder="用户名 / 邮箱"
+              required
+            />
+            <p className="text-xs text-gray-500 mt-1">支持用户名或邮箱登录</p>
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-300 mb-1">密码</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-2.5 bg-[#0F172A] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+              placeholder="输入密码"
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded-lg font-medium transition-colors"
+          >
+            {loading ? '登录中...' : '登录'}
+          </button>
+
+          <p className="text-center text-sm text-gray-400">
+            还没有账号？{' '}
+            <Link to="/register" className="text-blue-400 hover:text-blue-300 transition-colors">
+              立即注册
+            </Link>
+          </p>
+        </form>
+      </div>
+    </div>
+  )
+}
