@@ -176,10 +176,11 @@ export default function Chat() {
     const date = new Date(timestamp)
     const now = new Date()
     const isToday = date.toDateString() === now.toDateString()
+    const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hour12: false }
     if (isToday) {
-      return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      return date.toLocaleTimeString('zh-CN', opts)
     }
-    return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', ...opts })
   }
 
   if (!fid) return null
@@ -328,7 +329,7 @@ export default function Chat() {
             >
               <Paperclip className="w-5 h-5" />
             </button>
-            <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" />
+            <input ref={fileInputRef} type="file" accept="*/*" onChange={handleFileUpload} className="hidden" />
 
             <input
               type="text"
