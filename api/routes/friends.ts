@@ -113,12 +113,28 @@ router.delete('/:friendId', authMiddleware, (req: Request, res: Response): void 
     const userId = (req as any).user.id
     const friendId = parseInt(req.params.friendId)
 
-    const result = db.prepare(`
-      DELETE FROM friendships
-      WHERE (userId = ? AND friendId = ?) OR (userId = ? AND friendId = ?)
-    `).run(userId, friendId, friendId, userId)
+    const deleteAll = db.transaction(() => {
+      // 删除好友关系
+      const result = db.prepare(`
+        DELETE FROM friendships
+        WHERE (userId = ? AND friendId = ?) OR (userId = ? AND friendId = ?)
+      `).run(userId, friendId, friendId, userId)
 
-    if (result.changes === 0) {
+      if (result.changes === 0) {
+        return null
+      }
+
+      // 删除与该好友的所有聊天记录
+      db.prepare(`
+        DELETE FROM messages
+        WHERE (senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)
+      `).run(userId, friendId, friendId, userId)
+
+      return result
+    })
+
+    const result = deleteAll()
+    if (!result) {
       res.status(404).json({ success: false, error: '好友关系不存在' })
       return
     }

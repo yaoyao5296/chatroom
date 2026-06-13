@@ -7,6 +7,7 @@ interface ChatState {
   typingUsers: Record<number, boolean>
   loadMessages: (friendId: number) => Promise<void>
   addMessage: (message: Message) => void
+  clearMessages: (friendId: number) => void
   setOnlineUsers: (users: number[]) => void
   setTypingUser: (userId: number, isTyping: boolean) => void
 }
@@ -41,6 +42,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
           [friendId]: [...existing, message],
         },
       }
+    })
+  },
+
+  clearMessages: (friendId) => {
+    set((state) => {
+      const newMessages = { ...state.messages }
+      delete newMessages[friendId]
+      return { messages: newMessages }
     })
   },
 

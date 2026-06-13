@@ -29,6 +29,7 @@ export default function Friends() {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const onlineUsers = useChatStore((s) => s.onlineUsers)
+  const clearMessages = useChatStore((s) => s.clearMessages)
   const navigate = useNavigate()
 
   const updateUserInfo = useCallback(() => {
@@ -118,6 +119,7 @@ export default function Friends() {
     if (!deleteTarget) return
     try {
       await api.deleteFriend(deleteTarget.id)
+      clearMessages(deleteTarget.id)
       setDeleteTarget(null)
       loadFriends()
     } catch (err: any) {
