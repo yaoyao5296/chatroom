@@ -65,10 +65,12 @@ export default function Settings() {
     setSuccess('')
     try {
       const res = await api.uploadFile(file)
-      await api.updateAvatar(res.url)
+      const avatarUrl = res.url
+      await api.updateAvatar(avatarUrl)
       const userInfo = updateUserInfo()
-      userInfo.avatar = res.url
+      userInfo.avatar = avatarUrl
       localStorage.setItem('user', JSON.stringify(userInfo))
+      useAuthStore.setState({ user: { ...user, avatar: avatarUrl } })
       setShowAvatarModal(false)
       setSuccess('头像已更新')
     } catch (err: any) { setError(err.message) }

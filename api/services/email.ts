@@ -4,14 +4,20 @@
  */
 import nodemailer from 'nodemailer'
 
-// 邮件配置，从环境变量读取
-const MAIL_HOST = process.env.MAIL_HOST || ''
-const MAIL_PORT = parseInt(process.env.MAIL_PORT || '587')
-const MAIL_USER = process.env.MAIL_USER || ''
-const MAIL_PASS = process.env.MAIL_PASS || ''
-const MAIL_FROM = process.env.MAIL_FROM || MAIL_USER
-
 let transporter: nodemailer.Transporter | null = null
+
+/**
+ * 获取邮件配置（从 process.env 实时读取，避免模块加载时 env 未初始化）
+ */
+function getMailConfig() {
+  return {
+    host: process.env.MAIL_HOST || '',
+    port: parseInt(process.env.MAIL_PORT || '587'),
+    user: process.env.MAIL_USER || '',
+    pass: process.env.MAIL_PASS || '',
+    from: process.env.MAIL_FROM || process.env.MAIL_USER || '',
+  }
+}
 
 /**
  * 初始化邮件发送器
@@ -19,19 +25,24 @@ let transporter: nodemailer.Transporter | null = null
 function getTransporter() {
   if (transporter) return transporter
 
+  const config = getMailConfig()
+
   // 如果没有配置邮件，返回 null
-  if (!MAIL_HOST || !MAIL_USER || !MAIL_PASS) {
+  if (!config.host || !config.user || !config.pass) {
     return null
   }
 
   transporter = nodemailer.createTransport({
-    host: MAIL_HOST,
-    port: MAIL_PORT,
-    secure: MAIL_PORT === 465,
+    host: config.host,
+    port: config.port,
+    secure: config.port === 465,
     auth: {
-      user: MAIL_USER,
-      pass: MAIL_PASS,
+      user: config.user,
+      pass: config.pass,
     },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   })
 
   return transporter
@@ -44,6 +55,7 @@ function getTransporter() {
  */
 export async function sendVerificationEmail(email: string, code: string): Promise<boolean> {
   const transport = getTransporter()
+  const config = getMailConfig()
 
   if (!transport) {
     console.log(`[邮件服务未配置] 验证码 ${code} 已发送到 ${email}（实际未发送）`)
@@ -53,7 +65,7 @@ export async function sendVerificationEmail(email: string, code: string): Promis
 
   try {
     await transport.sendMail({
-      from: MAIL_FROM,
+      from: config.from,
       to: email,
       subject: 'ChatRoom 注册验证码',
       html: `

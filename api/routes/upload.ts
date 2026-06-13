@@ -95,8 +95,7 @@ router.post('/', authMiddleware, (req: Request, res: Response): void => {
       return
     }
 
-    const baseUrl = `${req.protocol}://${req.get('host')}`
-    const fileUrl = `${baseUrl}/uploads/${req.file.filename}`
+    const fileUrl = `/uploads/${req.file.filename}`
     const fileType = req.file.mimetype.startsWith('image/') ? 'image' : 'file'
 
     res.json({

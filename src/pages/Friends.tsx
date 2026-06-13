@@ -22,7 +22,6 @@ export default function Friends() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [showAvatarModal, setShowAvatarModal] = useState(false)
-  const [avatarUrl, setAvatarUrl] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Friend | null>(null)
   const longPressTimer = useRef<number | null>(null)
   const longPressTriggered = useRef(false)
@@ -143,15 +142,18 @@ export default function Friends() {
 
     try {
       const res = await api.uploadFile(file)
-      await api.updateAvatar(res.url)
+      const avatarUrl = res.url
+      await api.updateAvatar(avatarUrl)
 
-      // 更新 localStorage 中的用户信息
+      // 更新 localStorage
       const userInfo = updateUserInfo()
-      userInfo.avatar = res.url
+      userInfo.avatar = avatarUrl
       localStorage.setItem('user', JSON.stringify(userInfo))
 
+      // 同步更新 store
+      useAuthStore.setState({ user: { ...user, avatar: avatarUrl } })
+
       setShowAvatarModal(false)
-      setAvatarUrl(res.url)
     } catch (err: any) {
       setError(err.message)
     }
