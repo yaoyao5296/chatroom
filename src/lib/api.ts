@@ -43,10 +43,10 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   // 认证
-  register(username: string, email: string, password: string, code: string) {
+  register(username: string, password: string, email?: string, code?: string) {
     return request<{ success: boolean; user: { id: number; username: string; email?: string; avatar?: string }; token: string }>('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, email, password, code }),
+      body: JSON.stringify({ username, email: email || '', password, code: code || '' }),
     })
   },
 

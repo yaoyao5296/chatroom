@@ -46,8 +46,8 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
   try {
     const { username, email, password, code } = req.body
 
-    if (!username || !email || !password) {
-      res.status(400).json({ success: false, error: '用户名、邮箱和密码不能为空' })
+    if (!username || !password) {
+      res.status(400).json({ success: false, error: '用户名和密码不能为空' })
       return
     }
 
@@ -61,32 +61,34 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       return
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      res.status(400).json({ success: false, error: '请输入正确的邮箱格式' })
-      return
-    }
+    // 如果填写了邮箱，需要验证格式和验证码
+    if (email) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        res.status(400).json({ success: false, error: '请输入正确的邮箱格式' })
+        return
+      }
 
-    // 验证邮箱验证码
-    if (!code) {
-      res.status(400).json({ success: false, error: '请输入验证码' })
-      return
-    }
+      if (!code) {
+        res.status(400).json({ success: false, error: '请输入验证码' })
+        return
+      }
 
-    const verification = verifyCode(email, code)
-    if (!verification.valid) {
-      res.status(400).json({ success: false, error: verification.error })
-      return
+      const verification = verifyCode(email, code)
+      if (!verification.valid) {
+        res.status(400).json({ success: false, error: verification.error })
+        return
+      }
+
+      const emailActive = db.prepare('SELECT id FROM users WHERE email = ? AND active = 1').get(email)
+      if (emailActive) {
+        res.status(400).json({ success: false, error: '该邮箱已被注册' })
+        return
+      }
     }
 
     const activeUser = db.prepare('SELECT id FROM users WHERE username = ? AND active = 1').get(username)
     if (activeUser) {
       res.status(400).json({ success: false, error: '用户名已存在' })
-      return
-    }
-
-    const emailActive = db.prepare('SELECT id FROM users WHERE email = ? AND active = 1').get(email)
-    if (emailActive) {
-      res.status(400).json({ success: false, error: '该邮箱已被注册' })
       return
     }
 

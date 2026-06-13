@@ -68,7 +68,7 @@ export default function Register() {
 
     setLoading(true)
     try {
-      await register(username, email, password, code)
+      await register(username, password, email || undefined, code || undefined)
       navigate('/friends')
     } catch (err: any) {
       setError(err.message)
@@ -112,27 +112,25 @@ export default function Register() {
           </div>
 
           <div>
-            <label className="block text-sm text-gray-300 mb-1">邮箱</label>
+            <label className="block text-sm text-gray-300 mb-1">邮箱（可选）</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-2.5 bg-[#0F172A] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
-              placeholder="请输入邮箱"
-              required
+              placeholder="填写邮箱可绑定账号（选填）"
             />
           </div>
 
           <div>
-            <label className="block text-sm text-gray-300 mb-1">验证码</label>
+            <label className="block text-sm text-gray-300 mb-1">验证码（可选）</label>
             <div className="flex gap-2">
               <input
                 type="text"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 className="flex-1 px-4 py-2.5 bg-[#0F172A] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
-                placeholder="请输入验证码"
-                required
+                placeholder="填写邮箱后才需要验证码"
                 maxLength={6}
               />
               <button
