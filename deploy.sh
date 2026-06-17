@@ -28,26 +28,28 @@ ssh -p $SSH_PORT $SSH_USER@$SERVER_IP << 'REMOTE_SCRIPT'
   cat > ecosystem.config.cjs << 'PM2CONFIG'
 module.exports = {
   apps: [{
-    name: 'chatroom-api',
-    script: 'api/server.ts',
-    interpreter: 'npx',
-    interpreter_args: 'tsx',
-    cwd: '/opt/chatroom',
-    env: {
-      NODE_ENV: 'production',
-      PORT: 3001
-    },
-    instances: 1,
-    exec_mode: 'fork',
-    watch: false,
-    max_memory_restart: '1G',
-    error_file: '/opt/chatroom/logs/err.log',
-    out_file: '/opt/chatroom/logs/out.log',
-    merge_logs: true,
-    log_date_format: 'YYYY-MM-DD HH:mm:ss',
-    restart_delay: 3000,
-    max_restarts: 10
-  }]
+      name: 'chatroom-api',
+      script: 'api/server.ts',
+      interpreter: 'npx',
+      interpreter_args: 'tsx',
+      cwd: '/opt/chatroom',
+      env: {
+        NODE_ENV: 'production',
+        PORT: 3001,
+        REDIS_URL: 'redis://127.0.0.1:6379',
+      },
+      instances: 1,
+      exec_mode: 'fork',
+      watch: false,
+      max_memory_restart: '1G',
+      error_file: '/opt/chatroom/logs/err.log',
+      out_file: '/opt/chatroom/logs/out.log',
+      merge_logs: true,
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      restart_delay: 3000,
+      max_restarts: 10,
+      autorestart: true,
+    }]
 };
 PM2CONFIG
 

@@ -42,13 +42,11 @@ function SocketListener() {
 
     const handleNewMessage = (message: Message) => {
       addMessage(message)
-      // 增加未读计数（仅当不是当前聊天对象时）
       if (message.senderId !== user?.id) {
         const friendId = message.senderId
         const onChat = location.pathname === `/chat/${friendId}`
         if (!onChat) {
           incrementUnread('friend', friendId, message.content, message.senderId)
-          // 浏览器原生通知
           showNotification('新消息', {
             body: message.content || `[${message.type === 'image' ? '图片' : message.type === 'file' ? '文件' : '消息'}]`,
             onClick: () => {
@@ -61,7 +59,6 @@ function SocketListener() {
 
     const handleNewGroupMessage = (message: GroupMessage) => {
       addGroupMessage(message)
-      // 增加群未读计数
       if (message.senderId !== user?.id) {
         const groupId = message.groupId
         const onChat = location.pathname === `/group/${groupId}`
@@ -90,11 +87,20 @@ function SocketListener() {
     socket.on('online_users', handleOnlineUsers)
     socket.on('unread_updated', handleUnreadUpdated)
 
+    // 重连成功后：静默拉取最新在线用户列表（用户无感）
+    const handleReconnect = () => {
+      // 请求一次最新在线用户列表 + 刷新未读
+      loadUnread()
+      // 服务端 connect 时已默认推送 online_users
+    }
+    socket.io.on('reconnect', handleReconnect)
+
     return () => {
       socket.off('new_message', handleNewMessage)
       socket.off('new_group_message', handleNewGroupMessage)
       socket.off('online_users', handleOnlineUsers)
       socket.off('unread_updated', handleUnreadUpdated)
+      socket.io.off('reconnect', handleReconnect)
     }
   }, [addMessage, addGroupMessage, setOnlineUsers, user, incrementUnread, loadUnread, location.pathname])
 
