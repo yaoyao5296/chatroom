@@ -1,10 +1,11 @@
 /**
- * 好友管理路由
+ * 好友管理路由（需对方同意）
  */
 import { Router, type Request, type Response } from 'express'
 import jwt from 'jsonwebtoken'
 import db from '../db.js'
 import { JWT_SECRET } from './auth.js'
+import { getIO } from '../socket.js'
 
 const router = Router()
 
@@ -54,10 +55,10 @@ router.get('/', authMiddleware, (req: Request, res: Response): void => {
 })
 
 /**
- * 添加好友
- * POST /api/friends/add
+ * 发送好友请求
+ * POST /api/friends/request
  */
-router.post('/add', authMiddleware, (req: Request, res: Response): void => {
+router.post('/request', authMiddleware, (req: Request, res: Response): void => {
   try {
     const userId = (req as any).user.id
     const { username } = req.body
@@ -91,15 +92,144 @@ router.post('/add', authMiddleware, (req: Request, res: Response): void => {
       return
     }
 
-    // 添加好友
-    db.prepare('INSERT INTO friendships (userId, friendId) VALUES (?, ?)').run(userId, friend.id)
+    // 检查是否有待处理的请求（双向）
+    const pending = db.prepare(`
+      SELECT id, status FROM friend_requests
+      WHERE ((senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?))
+        AND status = 'pending'
+    `).get(userId, friend.id, friend.id, userId) as any
 
-    res.json({
-      success: true,
-      friend: { id: friend.id, username: friend.username },
-    })
+    if (pending) {
+      if (pending.senderId === userId) {
+        res.status(400).json({ success: false, error: '已发送过好友请求，请等待对方同意' })
+      } else {
+        // 对方已经发过请求，自动同意
+        db.prepare('UPDATE friend_requests SET status = ? WHERE id = ?').run('accepted', pending.id)
+        db.prepare('INSERT INTO friendships (userId, friendId) VALUES (?, ?)').run(userId, friend.id)
+
+        // 通知双方好友列表更新
+        const io = getIO()
+        if (io) {
+          io.to(userId.toString()).emit('friend_added')
+          io.to(friend.id.toString()).emit('friend_added')
+        }
+
+        res.json({ success: true, message: '对方已向你发送过好友请求，已自动添加为好友', friend: { id: friend.id, username: friend.username } })
+        return
+      }
+      return
+    }
+
+    // 插入好友请求
+    db.prepare('INSERT OR IGNORE INTO friend_requests (senderId, receiverId) VALUES (?, ?)').run(userId, friend.id)
+
+    // 检查是否因 UNIQUE 约束插入失败
+    const dup = db.prepare(`
+      SELECT status FROM friend_requests WHERE senderId = ? AND receiverId = ?
+    `).get(userId, friend.id) as any
+
+    if (!dup) {
+      // 说明之前是反向请求被拒绝了，现在重新发
+      db.prepare('INSERT INTO friend_requests (senderId, receiverId) VALUES (?, ?)').run(userId, friend.id)
+    } else if (dup.status === 'rejected') {
+      // 之前被拒绝过，更新为 pending
+      db.prepare('UPDATE friend_requests SET status = ? WHERE senderId = ? AND receiverId = ?').run('pending', userId, friend.id)
+    }
+
+    // 通知接收者
+    const io = getIO()
+    if (io) {
+      io.to(friend.id.toString()).emit('friend_request', {
+        id: dup?.id || db.prepare('SELECT id FROM friend_requests WHERE senderId = ? AND receiverId = ?').get(userId, friend.id)?.id,
+        senderId: userId,
+        senderUsername: (req as any).user.username,
+      })
+    }
+
+    res.json({ success: true, message: '好友请求已发送' })
   } catch (error) {
-    console.error('Add friend error:', error)
+    console.error('Send friend request error:', error)
+    res.status(500).json({ success: false, error: '服务器内部错误' })
+  }
+})
+
+/**
+ * 处理好友请求（同意/拒绝）
+ * POST /api/friends/respond
+ * Body: { requestId, action: 'accept' | 'reject' }
+ */
+router.post('/respond', authMiddleware, (req: Request, res: Response): void => {
+  try {
+    const userId = (req as any).user.id
+    const { requestId, action } = req.body
+
+    if (!requestId || !['accept', 'reject'].includes(action)) {
+      res.status(400).json({ success: false, error: '参数错误' })
+      return
+    }
+
+    const request = db.prepare(
+      'SELECT * FROM friend_requests WHERE id = ? AND receiverId = ? AND status = ?'
+    ).get(requestId, userId, 'pending') as any
+
+    if (!request) {
+      res.status(404).json({ success: false, error: '请求不存在或已处理' })
+      return
+    }
+
+    const io = getIO()
+
+    if (action === 'accept') {
+      // 同意：添加好友关系
+      db.transaction(() => {
+        db.prepare('UPDATE friend_requests SET status = ? WHERE id = ?').run('accepted', requestId)
+        db.prepare('INSERT INTO friendships (userId, friendId) VALUES (?, ?)').run(userId, request.senderId)
+      })()
+
+      // 通知双方更新好友列表
+      if (io) {
+        io.to(userId.toString()).emit('friend_added')
+        io.to(request.senderId.toString()).emit('friend_request_responded', { accepted: true })
+        // 也通知发送者更新好友列表
+        io.to(request.senderId.toString()).emit('friend_added')
+      }
+
+      res.json({ success: true, message: '已同意好友请求' })
+    } else {
+      // 拒绝
+      db.prepare('UPDATE friend_requests SET status = ? WHERE id = ?').run('rejected', requestId)
+
+      if (io) {
+        io.to(request.senderId.toString()).emit('friend_request_responded', { accepted: false })
+      }
+
+      res.json({ success: true, message: '已拒绝好友请求' })
+    }
+  } catch (error) {
+    console.error('Respond friend request error:', error)
+    res.status(500).json({ success: false, error: '服务器内部错误' })
+  }
+})
+
+/**
+ * 获取待处理的好友请求
+ * GET /api/friends/requests
+ */
+router.get('/requests', authMiddleware, (req: Request, res: Response): void => {
+  try {
+    const userId = (req as any).user.id
+
+    const requests = db.prepare(`
+      SELECT fr.id, fr.senderId, fr.status, fr.createdAt, u.username AS senderUsername, u.avatar AS senderAvatar
+      FROM friend_requests fr
+      JOIN users u ON u.id = fr.senderId
+      WHERE fr.receiverId = ? AND fr.status = 'pending'
+      ORDER BY fr.createdAt DESC
+    `).all(userId) as any[]
+
+    res.json({ success: true, requests })
+  } catch (error) {
+    console.error('Get requests error:', error)
     res.status(500).json({ success: false, error: '服务器内部错误' })
   }
 })
@@ -114,7 +244,6 @@ router.delete('/:friendId', authMiddleware, (req: Request, res: Response): void 
     const friendId = parseInt(req.params.friendId)
 
     const deleteAll = db.transaction(() => {
-      // 删除好友关系
       const result = db.prepare(`
         DELETE FROM friendships
         WHERE (userId = ? AND friendId = ?) OR (userId = ? AND friendId = ?)
@@ -124,7 +253,6 @@ router.delete('/:friendId', authMiddleware, (req: Request, res: Response): void 
         return null
       }
 
-      // 删除与该好友的所有聊天记录
       db.prepare(`
         DELETE FROM messages
         WHERE (senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)

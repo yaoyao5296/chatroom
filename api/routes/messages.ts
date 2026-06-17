@@ -42,7 +42,13 @@ router.get('/:friendId', authMiddleware, (req: Request, res: Response): void => 
       LIMIT 100
     `).all(userId, friendId, friendId, userId)
 
-    res.json({ success: true, messages })
+    // 确保所有时间戳带 Z 后缀（SQLite CURRENT_TIMESTAMP 存的是无时区 UTC 时间）
+    const formatted = (messages as any[]).map((m) => ({
+      ...m,
+      timestamp: m.timestamp ? m.timestamp.includes('Z') ? m.timestamp : m.timestamp.replace(' ', 'T') + 'Z' : m.timestamp,
+    }))
+
+    res.json({ success: true, messages: formatted })
   } catch (error) {
     console.error('Get messages error:', error)
     res.status(500).json({ success: false, error: '服务器内部错误' })

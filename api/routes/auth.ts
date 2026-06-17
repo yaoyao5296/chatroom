@@ -143,7 +143,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     }
 
     const user = db.prepare(`
-      SELECT id, username, password, phone, email, avatar FROM users
+      SELECT id, username, password, phone, email, avatar, vip, vipExpiresAt FROM users
       WHERE (username = ? OR phone = ? OR email = ?) AND active = 1
     `).get(loginId, loginId, loginId) as any
 
@@ -164,6 +164,10 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       { expiresIn: JWT_EXPIRES }
     )
 
+    // 检查 VIP 是否过期
+    const now = new Date().toISOString()
+    const vip = user.vip === 1 && user.vipExpiresAt && user.vipExpiresAt > now ? 1 : 0
+
     res.json({
       success: true,
       user: {
@@ -172,6 +176,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         phone: user.phone || '',
         email: user.email || '',
         avatar: user.avatar || '',
+        vip,
       },
       token,
     })
