@@ -86,7 +86,9 @@ router.post('/', authMiddleware, (req: Request, res: Response): void => {
     }
 
     const fileUrl = `/uploads/${req.file.filename}`
-    const fileType = req.file.mimetype.startsWith('image/') ? 'image' : 'file'
+    let fileType = 'file'
+    if (req.file.mimetype.startsWith('image/')) fileType = 'image'
+    else if (req.file.mimetype.startsWith('video/')) fileType = 'video'
 
     res.json({
       success: true,

@@ -4,7 +4,7 @@ import { useAuthStore } from '@/store/authStore'
 import { useMomentsStore } from '@/store/momentsStore'
 import { api, type Post, type Comment } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
-import { ArrowLeft, MessageCircle, Send, ImageIcon, Trash2 } from 'lucide-react'
+import { ArrowLeft, MessageCircle, Send, ImageIcon, Trash2, X } from 'lucide-react'
 
 function PostCard({ post, onComment, onDelete }: { post: Post; onComment: () => void; onDelete: (id: number) => void }) {
   const user = useAuthStore((s) => s.user)
@@ -12,6 +12,7 @@ function PostCard({ post, onComment, onDelete }: { post: Post; onComment: () => 
   const [comments, setComments] = useState<Comment[]>([])
   const [commentText, setCommentText] = useState('')
   const [loadingComments, setLoadingComments] = useState(false)
+  const [enlargedImage, setEnlargedImage] = useState('')
 
   const loadComments = useCallback(async () => {
     setLoadingComments(true)
@@ -60,12 +61,33 @@ function PostCard({ post, onComment, onDelete }: { post: Post; onComment: () => 
       <div className="p-5">
         <p className="text-gray-200 text-sm leading-relaxed whitespace-pre-wrap">{post.content}</p>
         {post.imageUrl && (
-          <img
-            src={post.imageUrl}
-            alt=""
-            className="mt-3 rounded-xl max-h-60 w-full object-contain bg-[#0F172A]"
-            loading="lazy"
-          />
+          (() => {
+            const isVideo = /\.(mp4|webm|mov|avi|mkv|flv|wmv)(\?.*)?$/i.test(post.imageUrl) || post.imageUrl.includes('/uploads/') && post.imageUrl.toLowerCase().match(/\.(mp4|webm|mov)/)
+            const isLikelyVideo = /\.(mp4|webm|mov|avi|mkv)(\?|$)/i.test(post.imageUrl)
+            if (isLikelyVideo) {
+              return (
+                <video
+                  src={post.imageUrl}
+                  controls
+                  preload="metadata"
+                  className="mt-3 rounded-xl max-h-80 w-full bg-black"
+                />
+              )
+            }
+            return (
+              <button
+                onClick={() => setEnlargedImage(post.imageUrl)}
+                className="block w-full text-left mt-3"
+              >
+                <img
+                  src={post.imageUrl}
+                  alt=""
+                  className="rounded-xl max-h-60 w-full object-contain bg-[#0F172A] hover:opacity-90 transition-opacity"
+                  loading="lazy"
+                />
+              </button>
+            )
+          })()
         )}
       </div>
 
@@ -155,6 +177,26 @@ function PostCard({ post, onComment, onDelete }: { post: Post; onComment: () => 
         </div>
       )}
     </div>
+    {/* 放大图片遮罩层 */}
+    {enlargedImage && (
+      <div
+        className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4"
+        onClick={() => setEnlargedImage('')}
+      >
+        <button
+          onClick={(e) => { e.stopPropagation(); setEnlargedImage('') }}
+          className="absolute top-4 right-4 p-2 text-white hover:text-gray-300 bg-black/50 rounded-full transition-colors"
+        >
+          <X className="w-6 h-6" />
+        </button>
+        <img
+          src={enlargedImage}
+          alt=""
+          className="max-h-full max-w-full object-contain"
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    )}
   )
 }
 

@@ -5,7 +5,7 @@ import { useChatStore } from '@/store/chatStore'
 import { useUnreadStore } from '@/store/unreadStore'
 import { api, type Message, type GroupMessage, type GroupInfo } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
-import { ArrowLeft, Send, Paperclip, Image, FileText, Ban, X, UserPlus, Users, Edit2, LogOut, Crown } from 'lucide-react'
+import { ArrowLeft, Send, Paperclip, Image, FileText, Ban, X, UserPlus, Users, Edit2, LogOut, Crown, VideoIcon } from 'lucide-react'
 
 export default function Chat() {
   const { friendId, groupId } = useParams<{ friendId: string; groupId: string }>()
@@ -29,6 +29,7 @@ export default function Chat() {
   const typingTimeoutRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const videoInputRef = useRef<HTMLInputElement>(null)
 
   const user = useAuthStore((s) => s.user)
   const messages = useChatStore((s) => s.messages)
@@ -325,6 +326,50 @@ export default function Chat() {
     }
   }
 
+  // 发送视频
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || (!fid && !isGroupMode)) return
+
+    if (!file.type.startsWith('video/')) {
+      alert('请选择视频文件')
+      return
+    }
+
+    if (file.size > 100 * 1024 * 1024) {
+      alert('视频大小不能超过 100MB')
+      return
+    }
+
+    setSending(true)
+    try {
+      const res = await api.uploadFile(file)
+      const socket = getSocket()
+      if (socket) {
+        if (isGroupMode) {
+          socket.emit('send_group_message', {
+            groupId: Number(groupId),
+            content: file.name,
+            type: 'video',
+            fileUrl: res.url,
+          })
+        } else {
+          socket.emit('send_message', {
+            receiverId: fid,
+            content: file.name,
+            type: 'video',
+            fileUrl: res.url,
+          })
+        }
+      }
+    } catch (err: any) {
+      alert(err.message)
+    } finally {
+      setSending(false)
+      if (videoInputRef.current) videoInputRef.current.value = ''
+    }
+  }
+
   // 下载文件（使用服务端下载接口，保留原始文件名）
   const handleDownloadFile = (messageId: number) => {
     const token = localStorage.getItem('token')
@@ -475,6 +520,19 @@ export default function Chat() {
                         <p className={`text-xs mt-1 ${isMine ? 'text-right' : 'text-left'}`}>{msg.content}</p>
                       </div>
                     )}
+                    {msg.type === 'video' && (
+                      <div className={`space-y-1 max-w-full overflow-hidden`}>
+                        <video
+                          src={msg.fileUrl}
+                          controls
+                          preload="metadata"
+                          className="max-w-60 max-h-60 rounded-2xl bg-black"
+                        />
+                        <p className={`text-xs text-gray-400 break-all ${isMine ? 'text-right' : 'text-left'}`}>
+                          {msg.content}
+                        </p>
+                      </div>
+                    )}
                     {msg.type === 'file' && (
                       <button
                         onClick={() => handleDownloadFile(msg.id)}
@@ -558,6 +616,19 @@ export default function Chat() {
                       </p>
                     </div>
                   )}
+                  {msg.type === 'video' && (
+                    <div className={`space-y-1 max-w-full overflow-hidden`}>
+                      <video
+                        src={msg.fileUrl}
+                        controls
+                        preload="metadata"
+                        className="max-w-60 max-h-60 rounded-2xl bg-black"
+                      />
+                      <p className={`text-xs text-gray-400 break-all ${isMine ? 'text-right' : 'text-left'}`}>
+                        {msg.content}
+                      </p>
+                    </div>
+                  )}
                   {msg.type === 'file' && (
                     <button
                       onClick={() => handleDownloadFile(msg.id)}
@@ -617,13 +688,22 @@ export default function Chat() {
                 <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
 
                 <button
+                  onClick={() => videoInputRef.current?.click()}
+                  className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+                  title="发送视频"
+                >
+                  <VideoIcon className="w-5 h-5" />
+                </button>
+                <input ref={videoInputRef} type="file" accept="video/*" onChange={handleVideoUpload} className="hidden" />
+
+                <button
                   onClick={() => fileInputRef.current?.click()}
                   className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
                   title="发送文件"
                 >
                   <Paperclip className="w-5 h-5" />
                 </button>
-                <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.7z,.txt,.csv,.ppt,.pptx,.mp3,.mp4,.avi,.mkv,.json,.xml" onChange={handleFileUpload} className="hidden" />
+                <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.7z,.txt,.csv,.ppt,.pptx,.mp3,.json,.xml" onChange={handleFileUpload} className="hidden" />
               </>
             )}
 
