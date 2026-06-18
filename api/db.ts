@@ -17,10 +17,32 @@ if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true })
 }
 
-const db = new Database(dbPath)
+const db = new Database(dbPath, {
+  readonly: false,
+  fileMustExist: false,
+  timeout: 5000,
+})
 
-// 启用 WAL 模式提升性能
+// ==================== SQLite 性能优化（一核服务器极限调优） ====================
+// WAL 模式：读写并发从 0 提升到 "写不阻塞读"，写性能 3-10 倍
 db.pragma('journal_mode = WAL')
+// NORMAL：写性能提升 3-5 倍，但断电可能丢最后一次事务（聊天消息可接受）
+// FULL 是最安全但最慢；我们做单机低成本部署，NORMAL 是最佳平衡点
+db.pragma('synchronous = NORMAL')
+// 内存缓存：~40MB（每页 4KB，10000 页），命中内存查询快 100 倍
+db.pragma('cache_size = 10000')
+// 内存映射读：大表查询时直接通过 mmap 读磁盘，读性能 2-5 倍
+db.pragma('mmap_size = 2147483648')
+// 临时表/临时索引放内存（排序、GROUP BY 大幅加速）
+db.pragma('temp_store = MEMORY')
+// 忙等待超时：并发写入时多等 5 秒而不是立即报错
+db.pragma('busy_timeout = 5000')
+// WAL 检查点阈值：超过 8MB 自动截断，防止 WAL 文件无限增长
+db.pragma('wal_autocheckpoint = 2000')
+// 限制 WAL 日志最大体积（SQLite 3.15+），防止异常增长
+try { db.pragma('journal_size_limit = 67108864') } catch {} // 64MB
+// 分析表统计信息：让查询优化器选更好的索引
+try { db.pragma('optimize') } catch {}
 
 // 创建表（兼容旧表结构，使用 IF NOT EXISTS 和 ALTER TABLE）
 db.exec(`

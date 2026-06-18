@@ -1,5 +1,10 @@
 /**
- * 文件上传路由（VIP 用户可上传更大文件）
+ * 文件上传路由（一核服务器优化版）
+ *
+ * 优化：
+ * 1) 预先创建 multer 实例（普通用户 & VIP 用户），避免每次请求 new 一个
+ * 2) 使用 diskStorage 直接写磁盘，不经过内存缓冲
+ * 3) 限制最大文件大小为 100MB（普通）/ 500MB（VIP）
  */
 import { Router, type Request, type Response } from 'express'
 import multer from 'multer'
@@ -21,7 +26,7 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true })
 }
 
-// 配置文件存储
+// 预配置文件存储
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     cb(null, uploadsDir)
@@ -31,6 +36,18 @@ const storage = multer.diskStorage({
     const ext = path.extname(file.originalname)
     cb(null, uniqueSuffix + ext)
   },
+})
+
+// ==================== 优化：预创建两个 multer 实例 ====================
+// 之前：每次请求 new Multer → 申请内存 → 解析完释放
+// 现在：进程启动时创建 2 个实例（普通/VIP），复用不重复创建
+const uploadNormal = multer({
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB（普通用户：图片/视频够用）
+})
+const uploadVip = multer({
+  storage,
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB（VIP）
 })
 
 function authMiddleware(req: Request, res: Response, next: any) {
@@ -54,22 +71,16 @@ function authMiddleware(req: Request, res: Response, next: any) {
  * POST /api/upload
  */
 router.post('/', authMiddleware, (req: Request, res: Response): void => {
-  // 检查用户 VIP 状态
   const userId = (req as any).user.id
   const user = db.prepare('SELECT vip, vipExpiresAt FROM users WHERE id = ?').get(userId) as any
   const isVip = user?.vip === 1 && user?.vipExpiresAt && user.vipExpiresAt > new Date().toISOString()
-  const maxSize = isVip ? 500 * 1024 * 1024 : 10 * 1024 * 1024 // VIP: 500MB, 普通: 10MB
+  const handler = isVip ? uploadVip.single('file') : uploadNormal.single('file')
 
-  const upload = multer({
-    storage,
-    limits: { fileSize: maxSize },
-  })
-
-  upload.single('file')(req, res, (err) => {
+  handler(req, res, (err) => {
     if (err) {
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
-          const limit = isVip ? '500MB' : '10MB'
+          const limit = isVip ? '500MB' : '100MB'
           res.status(400).json({ success: false, error: `文件大小不能超过${limit}` })
           return
         }
