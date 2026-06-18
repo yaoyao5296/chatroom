@@ -33,7 +33,7 @@ router.get('/', authMiddleware, (req: Request, res: Response): void => {
     const posts = db.prepare(`
       SELECT p.id, p.userId, p.content, p.imageUrl,
              CASE WHEN instr(p.createdAt, 'T') THEN p.createdAt ELSE p.createdAt || 'Z' END as createdAt,
-             u.username, u.avatar,
+             u.username, u.avatar, u.bio, u.gender, u.region,
              (SELECT COUNT(*) FROM comments WHERE postId = p.id) as commentCount
       FROM posts p
       JOIN users u ON p.userId = u.id
@@ -71,7 +71,7 @@ router.post('/', authMiddleware, (req: Request, res: Response): void => {
 
     const post = db.prepare(`
       SELECT p.id, p.userId, p.content, p.imageUrl, p.createdAt,
-             u.username, u.avatar, 0 as commentCount
+             u.username, u.avatar, u.bio, u.gender, u.region, 0 as commentCount
       FROM posts p
       JOIN users u ON p.userId = u.id
       WHERE p.id = ?

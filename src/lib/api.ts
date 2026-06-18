@@ -388,6 +388,9 @@ export interface Post {
   createdAt: string
   username: string
   avatar: string
+  bio: string
+  gender: string
+  region: string
   commentCount: number
 }
 

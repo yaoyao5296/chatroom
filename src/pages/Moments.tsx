@@ -84,16 +84,32 @@ function PostCard({ post, onComment, onDelete, onEnlarge }: { post: Post; onComm
       </div>
 
       {/* 作者信息 */}
-      <div className="px-5 pb-3 flex items-center gap-2">
+      <div className="px-5 pb-3 flex items-start gap-2">
         {post.avatar ? (
-          <img src={post.avatar} alt="" className="w-6 h-6 rounded-full object-cover" />
+          <img src={post.avatar} alt="" className="w-6 h-6 rounded-full object-cover mt-0.5 flex-shrink-0" />
         ) : (
-          <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-semibold">
+          <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-semibold mt-0.5 flex-shrink-0">
             {post.username[0]?.toUpperCase()}
           </div>
         )}
-        <span className="text-xs text-gray-400">{post.username}</span>
-        <span className="text-xs text-gray-600 ml-auto">{formatTime(post.createdAt)}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-blue-400 font-medium">{post.username}</span>
+            {post.gender === 'male' && <span className="text-[10px] text-blue-400">♂</span>}
+            {post.gender === 'female' && <span className="text-[10px] text-pink-400">♀</span>}
+            {post.gender === 'other' && <span className="text-[10px] text-gray-400">⚧</span>}
+            {post.region && (
+              <span className="text-gray-600 flex items-center gap-0.5">
+                <span>📍</span>
+                <span className="truncate max-w-[80px]">{post.region}</span>
+              </span>
+            )}
+            <span className="text-gray-600 ml-auto">{formatTime(post.createdAt)}</span>
+          </div>
+          {post.bio && (
+            <p className="text-[11px] text-gray-500 italic mt-0.5 truncate">"{post.bio}"</p>
+          )}
+        </div>
         {user?.id === post.userId && (
           <button
             onClick={() => onDelete(post.id)}

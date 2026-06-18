@@ -11,6 +11,9 @@ interface Friend {
   id: number
   username: string
   avatar: string
+  bio?: string
+  gender?: string
+  region?: string
   active: number
 }
 
@@ -471,12 +474,31 @@ export default function Friends() {
                         </div>
                       )}
                     </div>
-                    <div className="flex-1 text-left">
+                    <div className="flex-1 text-left min-w-0">
                       {friend.active === 1 ? (
                         <>
-                          <p className="text-white text-sm font-medium">{friend.username}</p>
-                          <p className="text-xs text-gray-500">
-                            {onlineUsers.includes(friend.id) ? '在线' : '离线'}
+                          <div className="flex items-center gap-2">
+                            <p className="text-white text-sm font-medium truncate">{friend.username}</p>
+                            {friend.gender === 'male' && <span className="text-[10px] text-blue-400">♂</span>}
+                            {friend.gender === 'female' && <span className="text-[10px] text-pink-400">♀</span>}
+                            {friend.gender === 'other' && <span className="text-[10px] text-gray-400">⚧</span>}
+                          </div>
+                          <p className="text-xs text-gray-500 flex items-center gap-2 mt-0.5">
+                            <span>{onlineUsers.includes(friend.id) ? '在线' : '离线'}</span>
+                            {(friend.region || friend.bio) && (
+                              <>
+                                <span className="text-gray-700">·</span>
+                                {friend.region && (
+                                  <span className="flex items-center gap-0.5 truncate">
+                                    <span>📍</span>
+                                    <span className="truncate max-w-[80px]">{friend.region}</span>
+                                  </span>
+                                )}
+                                {friend.bio && (
+                                  <span className="truncate italic max-w-[200px]">"{friend.bio}"</span>
+                                )}
+                              </>
+                            )}
                           </p>
                         </>
                       ) : (

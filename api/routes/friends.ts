@@ -36,12 +36,12 @@ router.get('/', authMiddleware, (req: Request, res: Response): void => {
     const userId = (req as any).user.id
 
     const friends = db.prepare(`
-      SELECT u.id, u.username, u.avatar, u.active
+      SELECT u.id, u.username, u.avatar, u.bio, u.gender, u.region, u.active
       FROM friendships f
       JOIN users u ON u.id = f.friendId
       WHERE f.userId = ?
       UNION
-      SELECT u.id, u.username, u.avatar, u.active
+      SELECT u.id, u.username, u.avatar, u.bio, u.gender, u.region, u.active
       FROM friendships f
       JOIN users u ON u.id = f.userId
       WHERE f.friendId = ?
@@ -220,7 +220,9 @@ router.get('/requests', authMiddleware, (req: Request, res: Response): void => {
     const userId = (req as any).user.id
 
     const requests = db.prepare(`
-      SELECT fr.id, fr.senderId, fr.status, fr.createdAt, u.username AS senderUsername, u.avatar AS senderAvatar
+      SELECT fr.id, fr.senderId, fr.status, fr.createdAt,
+             u.username AS senderUsername, u.avatar AS senderAvatar,
+             u.bio AS senderBio, u.gender AS senderGender, u.region AS senderRegion
       FROM friend_requests fr
       JOIN users u ON u.id = fr.senderId
       WHERE fr.receiverId = ? AND fr.status = 'pending'
