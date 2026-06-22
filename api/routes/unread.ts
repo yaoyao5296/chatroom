@@ -1,71 +1,49 @@
 /**
- * 未读消息路由
+ * 未读计数路由 —— 单核极限优化版
  */
 import { Router, type Request, type Response } from 'express'
-import jwt from 'jsonwebtoken'
-import db from '../db.js'
-import { JWT_SECRET } from './auth.js'
+import { stmtCache } from '../db.js'
+import { authMiddleware } from '../middleware/auth.js'
 
 const router = Router()
 
-function authMiddleware(req: Request, res: Response, next: any) {
-  const authHeader = req.headers.authorization
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ success: false, error: '未登录' })
-    return
-  }
-  const token = authHeader.split(' ')[1]
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as any
-    ;(req as any).user = decoded
-    next()
-  } catch {
-    res.status(401).json({ success: false, error: '登录已过期' })
-  }
-}
-
-/**
- * 获取当前用户的所有未读计数
- * GET /api/unread
- */
 router.get('/', authMiddleware, (req: Request, res: Response): void => {
   try {
     const userId = (req as any).user.id
-    const rows = db.prepare(`
-      SELECT targetType, targetId, count, lastMessage, lastSenderId, lastTimestamp
-      FROM unread_counts
-      WHERE userId = ? AND count > 0
-    `).all(userId)
+    const unreadList = stmtCache
+      .get(`SELECT targetType, targetId, count, lastMessage, lastSenderId, lastTimestamp
+           FROM unread_counts
+           WHERE userId = ?`)
+      .all(userId) as any[]
 
-    res.json({ success: true, unread: rows })
-  } catch (error) {
-    console.error('Get unread error:', error)
+    // 加上 friend-request 待处理请求数
+    const requestCount = (stmtCache
+      .get('SELECT COUNT(*) AS count FROM friend_requests WHERE receiverId = ? AND status = ?')
+      .get(userId, 'pending') as any).count
+
+    const total = unreadList.reduce<number>((acc, u) => acc + (u.count || 0), 0) + requestCount
+
+    res.json({ success: true, unread: unreadList, requestCount, total })
+  } catch (error: any) {
+    console.error('[unread]', error?.message || error)
     res.status(500).json({ success: false, error: '服务器内部错误' })
   }
 })
 
-/**
- * 清除指定会话的未读计数
- * POST /api/unread/clear
- * body: { targetType: 'friend' | 'group', targetId: number }
- */
 router.post('/clear', authMiddleware, (req: Request, res: Response): void => {
   try {
     const userId = (req as any).user.id
     const { targetType, targetId } = req.body
-
-    if (!targetType || !targetId) {
-      res.status(400).json({ success: false, error: '参数缺失' })
+    if (!targetType || targetId === undefined || targetId === null) {
+      res.status(400).json({ success: false, error: '参数错误' })
       return
     }
-
-    db.prepare(
-      'DELETE FROM unread_counts WHERE userId = ? AND targetType = ? AND targetId = ?'
-    ).run(userId, targetType, targetId)
-
+    stmtCache
+      .get('UPDATE unread_counts SET count = 0 WHERE userId = ? AND targetType = ? AND targetId = ?')
+      .run(userId, String(targetType), Number(targetId))
     res.json({ success: true })
-  } catch (error) {
-    console.error('Clear unread error:', error)
+  } catch (error: any) {
+    console.error('[unread-mark]', error?.message || error)
     res.status(500).json({ success: false, error: '服务器内部错误' })
   }
 })

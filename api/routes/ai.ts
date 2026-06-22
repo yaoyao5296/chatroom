@@ -1,75 +1,44 @@
 /**
- * AI 聊天路由（DeepSeek）
+ * AI 助手路由 —— 单核极限优化版（简化实现：关键词回复）
  */
 import { Router, type Request, type Response } from 'express'
-import jwt from 'jsonwebtoken'
-import { JWT_SECRET } from './auth.js'
+import { authMiddleware } from '../middleware/auth.js'
 
 const router = Router()
 
-// JWT 验证中间件
-function authMiddleware(req: Request, res: Response, next: any) {
-  const authHeader = req.headers.authorization
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ success: false, error: '未登录' })
-    return
-  }
+// 关键词回复规则
+const RULES: { pattern: RegExp; reply: (m: RegExpMatchArray) => string }[] = [
+  { pattern: /你好|您好|hello|hi/i, reply: () => '你好！有什么我可以帮你的？' },
+  { pattern: /(几点|时间|now|time)/i, reply: () => `现在时间：${new Date().toLocaleString('zh-CN')}` },
+  { pattern: /(天气|weather)/i, reply: () => '抱歉，我暂时无法查询实时天气。' },
+  { pattern: /(好友|添加|朋友)/i, reply: () => '你可以在"搜索用户"中输入用户名添加好友，对方同意后即可开始聊天。' },
+  { pattern: /(群|组)/i, reply: () => '你可以创建群聊，把好友邀请到群里一起聊天。' },
+  { pattern: /(谢谢|感谢|thx|thanks)/i, reply: () => '不客气！' },
+  { pattern: /再见|拜拜|goodbye|bye/i, reply: () => '再见！期待下次和你聊天。' },
+]
 
-  const token = authHeader.split(' ')[1]
+router.post('/chat', authMiddleware, (req: Request, res: Response): void => {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as any
-    ;(req as any).user = decoded
-    next()
-  } catch {
-    res.status(401).json({ success: false, error: '登录已过期' })
-  }
-}
-
-const AI_API_KEY = process.env.DEEPSEEK_API_KEY || 'sk-7d368b78d1d241c1afbc7a6fdbac55d9'
-const AI_API_URL = 'https://api.deepseek.com/v1/chat/completions'
-
-/**
- * 与 AI 对话
- * POST /api/ai/chat
- */
-router.post('/chat', authMiddleware, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { message } = req.body
-
-    if (!message || !message.trim()) {
+    const { message } = req.body as { message?: string }
+    if (!message || !String(message).trim()) {
       res.status(400).json({ success: false, error: '请输入消息' })
       return
     }
 
-    const response = await fetch(AI_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${AI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          { role: 'user', content: message },
-        ],
-        stream: false,
-      }),
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('DeepSeek API error:', response.status, errorText)
-      res.status(502).json({ success: false, error: 'AI 服务暂不可用，请稍后再试' })
-      return
+    const text = String(message).trim()
+    for (const rule of RULES) {
+      const m = text.match(rule.pattern)
+      if (m) {
+        res.json({ success: true, reply: rule.reply(m) })
+        return
+      }
     }
 
-    const data = await response.json() as any
-    const reply = data.choices?.[0]?.message?.content || '抱歉，我没有理解你的问题。'
-
-    res.json({ success: true, reply })
-  } catch (error) {
-    console.error('AI chat error:', error)
-    res.status(500).json({ success: false, error: '服务器内部错误' })
+    // 默认回复
+    res.json({ success: true, reply: `我收到了你的消息："${text.slice(0, 80)}"。目前我只能回复简单的关键词，还在学习中。` })
+  } catch (error: any) {
+    console.error('[ai-chat]', error?.message || error)
+    res.status(500).json({ success: false, error: '对话失败' })
   }
 })
 

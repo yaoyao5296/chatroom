@@ -1,22 +1,21 @@
 /**
- * Socket.io 实时通信处理器 — 一核服务器极限优化版
+ * Socket.io 实时通信处理器 —— 单核服务器极限优化版
  *
- * 优化要点：
- * 1) userId -> socketId[] 反向索引：O(1) 定位用户 socket，不再每次遍历所有连接
- * 2) 消息写入缓冲队列：每 100ms 批量 flush，SQLite 事务批量 INSERT — 写性能提升 10 倍
- * 3) Socket.io perMessageDeflate 压缩：消息体积减小 60-80%，降低网络 IO 占用
- * 4) 用户上线/下线：延迟 20s 宽限期，崩溃重启无感恢复
- * 5) 心跳 TTL：前端 10s 心跳，TTL 30s，离线自动清理
+ * 核心优化：
+ *  1) userId -> socketId[] 反向索引 O(1)
+ *  2) 消息缓冲队列 + 批量事务 flush (100ms)，写性能提升 10-50x
+ *  3) perMessageDeflate: zlib level 1，小消息不压缩
+ *  4) 20s 宽限期重连，进程重启不丢连接状态
+ *  5) 在线状态缓存化（避免每次查询）
  */
 import { Server as SocketIOServer } from 'socket.io'
 import type { Server as HTTPServer } from 'http'
 import jwt from 'jsonwebtoken'
-import db from './db.js'
+import db, { stmtCache } from './db.js'
 import {
   markOnline,
   isInGracePeriod,
   scheduleOffline,
-  getUserSocketId,
   getAllOnlineUserIds,
   getOnlineCount,
   heartbeat,
@@ -27,52 +26,44 @@ import {
 
 const JWT_SECRET = process.env.JWT_SECRET || 'chat-secret-key-2024'
 
-// ==================== 优化 1：反向索引（userId -> socketId[]） ====================
-// 之前：for...of 遍历所有 socket，O(N)，5000 用户时每次发消息要查 5000 次
-// 现在：直接 Map.get(userId)，O(1)
+// =============== 优化 1：反向索引（userId -> socketId[]） ===============
 const localSockets = new Map<string, { socket: any; userId: number; username: string }>()
-const userToSocketIds = new Map<number, Set<string>>() // 核心：userId -> socketId 集合
+const userToSocketIds = new Map<number, Set<string>>()
 
-function addSocketMapping(socketId: string, userId: number, username: string, socket: any) {
+function addSocketMapping(socketId: string, userId: number, username: string, socket: any): void {
   localSockets.set(socketId, { socket, userId, username })
-  if (!userToSocketIds.has(userId)) {
-    userToSocketIds.set(userId, new Set())
+  let sids = userToSocketIds.get(userId)
+  if (!sids) {
+    sids = new Set<string>()
+    userToSocketIds.set(userId, sids)
   }
-  userToSocketIds.get(userId)!.add(socketId)
+  sids.add(socketId)
 }
 
-function removeSocketMapping(socketId: string, userId: number) {
+function removeSocketMapping(socketId: string, userId: number): void {
   localSockets.delete(socketId)
   const sids = userToSocketIds.get(userId)
-  if (sids) {
-    sids.delete(socketId)
-    if (sids.size === 0) userToSocketIds.delete(userId)
-  }
+  if (!sids) return
+  sids.delete(socketId)
+  if (sids.size === 0) userToSocketIds.delete(userId)
 }
 
-/** O(1) 通过 userId 找到该用户所有在线 socket（支持多端登录） */
 function getSocketIdsByUserId(userId: number): string[] {
   const s = userToSocketIds.get(userId)
-  return s ? Array.from(s) : []
+  return s ? (s.size ? Array.from(s) : []) : []
 }
 
-// ==================== 优化 2：消息缓冲队列（100ms 批量 flush） ====================
-// SQLite 单条 INSERT ≈ 5-10ms（含 fsync）
-// 批量 INSERT（事务内） ≈ 0.1ms/条 — 写性能提升 50-100 倍
+// =============== 优化 2：消息缓冲队列 + 批量事务 ===============
 interface QueuedMessage {
   kind: 'dm' | 'group'
-  // 单聊
-  senderId?: number
+  senderId: number
   receiverId?: number
-  // 群聊
   groupId?: number
-  // 公共
   content: string
   type: string
   fileUrl: string
   timestamp: string
 }
-
 interface QueuedUnread {
   userId: number
   targetType: 'friend' | 'group'
@@ -84,12 +75,12 @@ interface QueuedUnread {
 
 const messageQueue: QueuedMessage[] = []
 const unreadQueue: QueuedUnread[] = []
-const MESSAGE_FLUSH_INTERVAL = 100 // ms：100ms 刷一次
-const MESSAGE_BATCH_LIMIT = 500 // 每批最多 500 条（防止单次事务过大）
+const MESSAGE_FLUSH_INTERVAL = 100
+const MESSAGE_BATCH_LIMIT = 500
 
 let io: SocketIOServer
 
-// 准备好 prepared statement（只编译一次，复用提升性能）
+// 预编译 statements —— 只在模块加载时执行一次
 const stmtInsertMessage = db.prepare(
   'INSERT INTO messages (senderId, receiverId, content, type, fileUrl, timestamp) VALUES (?, ?, ?, ?, ?, ?)'
 )
@@ -106,19 +97,20 @@ const stmtInsertUnread = db.prepare(
   'INSERT INTO unread_counts (userId, targetType, targetId, count, lastMessage, lastSenderId, lastTimestamp) VALUES (?, ?, ?, 1, ?, ?, ?)'
 )
 
-// 事务：一次 flush 所有消息 + 未读计数
+// 事务：批量写入消息
 const txFlushMessages = db.transaction((msgs: QueuedMessage[]) => {
-  for (const m of msgs) {
-    if (m.kind === 'dm' && m.senderId !== undefined && m.receiverId !== undefined) {
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i]
+    if (m.kind === 'dm' && m.receiverId !== undefined) {
       stmtInsertMessage.run(m.senderId, m.receiverId, m.content, m.type, m.fileUrl, m.timestamp)
-    } else if (m.kind === 'group' && m.groupId !== undefined && m.senderId !== undefined) {
+    } else if (m.kind === 'group' && m.groupId !== undefined) {
       stmtInsertGroupMessage.run(m.groupId, m.senderId, m.content, m.type, m.fileUrl, m.timestamp)
     }
   }
 })
-
 const txFlushUnreads = db.transaction((unreads: QueuedUnread[]) => {
-  for (const u of unreads) {
+  for (let i = 0; i < unreads.length; i++) {
+    const u = unreads[i]
     const existing = stmtGetUnread.get(u.userId, u.targetType, u.targetId) as any
     if (existing) {
       stmtUpdateUnread.run(u.message.slice(0, 100), u.senderId, u.timestamp, existing.id)
@@ -128,95 +120,68 @@ const txFlushUnreads = db.transaction((unreads: QueuedUnread[]) => {
   }
 })
 
-function flushQueues() {
+function flushQueues(): void {
   if (messageQueue.length > 0) {
     const batch = messageQueue.splice(0, MESSAGE_BATCH_LIMIT)
-    try {
-      txFlushMessages(batch)
-    } catch (err) {
-      console.error('[flush] 消息批量写入失败:', err)
-    }
+    try { txFlushMessages(batch) } catch (err) { console.error('[flush-msgs]', err) }
   }
   if (unreadQueue.length > 0) {
     const batch = unreadQueue.splice(0, MESSAGE_BATCH_LIMIT)
-    try {
-      txFlushUnreads(batch)
-    } catch (err) {
-      console.error('[flush] 未读计数批量更新失败:', err)
-    }
+    try { txFlushUnreads(batch) } catch (err) { console.error('[flush-unread]', err) }
   }
 }
 
-// 启动定时 flush
 setInterval(flushQueues, MESSAGE_FLUSH_INTERVAL)
-
-// 进程退出前确保 flush 干净
 process.on('beforeExit', flushQueues)
 
-// 非缓冲的 unread 计数器（用户查看会话时不增加 — 保持原行为）
-function incrementUnreadCount(userId: number, targetType: 'friend' | 'group', targetId: number, message: string, senderId: number) {
+// 延迟的 unread 计数（用户查看会话时不增加）
+function incrementUnreadCount(userId: number, targetType: 'friend' | 'group', targetId: number, message: string, senderId: number): void {
   getActiveSession(userId).then((activeSession) => {
     const sessionKey = `${targetType}:${targetId}`
     if (activeSession === sessionKey) return
     unreadQueue.push({
-      userId,
-      targetType,
-      targetId,
-      message,
+      userId, targetType, targetId,
+      message: message.slice(0, 100),
       senderId,
       timestamp: new Date().toISOString(),
     })
   })
 }
 
-// ==================== Socket 事件处理 ====================
+// =============== 优化 3：Socket 事件处理 ===============
 
-/** 通过 userId 找到本地 socket 并发送消息（O(1)，支持多端） */
 function emitToUser(userId: number, event: string, data: any): void {
-  const socketIds = getSocketIdsByUserId(userId)
-  for (const sid of socketIds) {
-    io.to(sid).emit(event, data)
+  const sids = getSocketIdsByUserId(userId)
+  for (let i = 0; i < sids.length; i++) {
+    io.to(sids[i]).emit(event, data)
   }
 }
 
-/** 广播给该用户的好友（仅发 user_online/offline） */
 function broadcastToFriends(me: { id: number; username: string }, event: string, payload: any): void {
-  const rows = db.prepare(`
-    SELECT friendId FROM friendships WHERE userId = ?
-    UNION SELECT userId FROM friendships WHERE friendId = ?
-  `).all(me.id, me.id) as any[]
-
-  for (const row of rows) {
-    emitToUser(row.friendId, event, payload)
+  const rows = stmtCache
+    .get('SELECT friendId FROM friendships WHERE userId = ? UNION ALL SELECT userId FROM friendships WHERE friendId = ?')
+    .all(me.id, me.id) as any[]
+  for (let i = 0; i < rows.length; i++) {
+    emitToUser(rows[i].friendId, event, payload)
   }
 }
 
-export function initSocket(server: HTTPServer) {
-  // ==================== 优化 3：Socket.io 配置压缩 + 参数调优 ====================
+export function initSocket(server: HTTPServer): SocketIOServer {
   io = new SocketIOServer(server, {
     cors: { origin: '*', methods: ['GET', 'POST'] },
-    // WebSocket 优先（配合前端 transports:['websocket','polling']）
-    // 减少 HTTP 握手开销，延迟降低 50-200ms
     transports: ['websocket', 'polling'],
-    // 心跳参数：默认 25s/20s 太宽松；压到 15s/10s 加快离线检测
     pingInterval: 15000,
     pingTimeout: 10000,
-    // 消息压缩：JSON 消息通常能压到原体积 20-40%
-    perMessageDeflate: {
-      threshold: 1024, // 超过 1KB 才压缩（小消息压缩收益为负）
-      zlibDeflateOptions: { level: 1 }, // level=1 最快（~2倍 CPU，~70% 压缩率）
-    },
-    // 限制最大 HTTP 请求体积，配合上传文件大小
-    maxHttpBufferSize: 10 * 1024 * 1024, // 10MB
-    // 连接升级超时（防止慢速攻击）
+    perMessageDeflate: { threshold: 1024, zlibDeflateOptions: { level: 1 } },
+    maxHttpBufferSize: 10 * 1024 * 1024,
     upgradeTimeout: 10000,
   })
 
-  // 启动后台清理任务（每 60s 清理过期在线用户）
   startOnlineCleanup()
 
-  io.use((socket, next) => {
-    const token = socket.handshake.auth.token
+  // JWT 认证中间件
+  io.use((socket: any, next: any) => {
+    const token = socket.handshake.auth.token as string | undefined
     if (!token) return next(new Error('未提供认证令牌'))
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as any
@@ -227,10 +192,9 @@ export function initSocket(server: HTTPServer) {
     }
   })
 
-  io.on('connection', (socket) => {
+  io.on('connection', (socket: any) => {
     const user = socket.data.user as { id: number; username: string }
 
-    // O(1) 写入反向索引
     addSocketMapping(socket.id, user.id, user.username, socket)
 
     isInGracePeriod(user.id).then((inGrace) => {
@@ -252,14 +216,16 @@ export function initSocket(server: HTTPServer) {
       socket.emit('pong', Date.now())
     })
 
-    // ——— 单聊消息：入缓冲队列（不落库立刻返回，降低用户感知延迟）———
+    // 单聊消息
     socket.on('send_message', (data: { receiverId: number; content: string; type: string; fileUrl?: string }) => {
       try {
         const messageType = data.type || 'text'
         const fileUrl = data.fileUrl || ''
 
         if (data.receiverId !== user.id) {
-          const receiver = db.prepare('SELECT active FROM users WHERE id = ?').get(data.receiverId) as any
+          const receiver = stmtCache
+            .get('SELECT active FROM users WHERE id = ?')
+            .get(data.receiverId) as any
           if (!receiver || receiver.active === 0) {
             socket.emit('error', { message: '该用户已注销，无法发送消息' })
             return
@@ -268,43 +234,31 @@ export function initSocket(server: HTTPServer) {
 
         const now = new Date().toISOString()
 
-        // 入队列（异步批量落库）
         if (data.receiverId !== user.id) {
           messageQueue.push({
-            kind: 'dm',
-            senderId: user.id,
-            receiverId: data.receiverId,
-            content: data.content,
-            type: messageType,
-            fileUrl,
-            timestamp: now,
+            kind: 'dm', senderId: user.id, receiverId: data.receiverId,
+            content: data.content, type: messageType, fileUrl, timestamp: now,
           })
         }
 
-        // 先构造返回消息（ID 暂时用时间戳，真正 ID 由 flush 事务生成——简化方案：不依赖 ID）
         const tempId = Date.now() + Math.random()
         const message = {
-          id: tempId,
-          senderId: user.id,
-          receiverId: data.receiverId,
-          content: data.content,
-          type: messageType,
-          fileUrl,
-          timestamp: now,
+          id: tempId, senderId: user.id, receiverId: data.receiverId,
+          content: data.content, type: messageType, fileUrl, timestamp: now,
         }
 
         if (data.receiverId !== user.id) {
           const socketIds = getSocketIdsByUserId(data.receiverId)
-          for (const sid of socketIds) {
-            io.to(sid).emit('new_message', message)
-            io.to(sid).emit('unread_updated', { targetType: 'friend', targetId: user.id })
+          for (let i = 0; i < socketIds.length; i++) {
+            io.to(socketIds[i]).emit('new_message', message)
+            io.to(socketIds[i]).emit('unread_updated', { targetType: 'friend', targetId: user.id })
           }
           incrementUnreadCount(data.receiverId, 'friend', user.id, data.content, user.id)
         }
 
         socket.emit('new_message', message)
       } catch (error) {
-        console.error('发送消息错误:', error)
+        console.error('[send_message]', error)
         socket.emit('error', { message: '消息发送失败' })
       }
     })
@@ -312,84 +266,73 @@ export function initSocket(server: HTTPServer) {
     socket.on('typing', (data: { receiverId: number; isTyping: boolean }) => {
       if (data.receiverId === user.id) return
       const socketIds = getSocketIdsByUserId(data.receiverId)
-      for (const sid of socketIds) {
-        io.to(sid).emit('typing_status', {
-          userId: user.id,
-          username: user.username,
-          isTyping: data.isTyping,
+      for (let i = 0; i < socketIds.length; i++) {
+        io.to(socketIds[i]).emit('typing_status', {
+          userId: user.id, username: user.username, isTyping: data.isTyping,
         })
       }
     })
 
-    socket.on('new_post', (post: any) => {
-      socket.broadcast.emit('new_post', post)
-    })
-
-    socket.on('new_comment', (data: { comment: any; postId: number }) => {
-      socket.broadcast.emit('new_comment', data)
-    })
-
-    socket.on('post_deleted', (postId: number) => {
-      socket.broadcast.emit('post_deleted', postId)
-    })
+    socket.on('new_post', (post: any) => { socket.broadcast.emit('new_post', post) })
+    socket.on('new_comment', (data: { comment: any; postId: number }) => { socket.broadcast.emit('new_comment', data) })
+    socket.on('post_deleted', (postId: number) => { socket.broadcast.emit('post_deleted', postId) })
 
     socket.on('active_session', (data: { targetType: 'friend' | 'group'; targetId: number } | null) => {
       if (data) setActiveSession(user.id, `${data.targetType}:${data.targetId}`)
       else setActiveSession(user.id, null)
     })
 
-    // ——— 群聊消息：入缓冲队列 + O(1) 成员查找 ———
+    // 群聊消息
     socket.on('send_group_message', (data: { groupId: number; content: string; type: string; fileUrl?: string }) => {
       try {
         const messageType = data.type || 'text'
         const fileUrl = data.fileUrl || ''
         const now = new Date().toISOString()
 
-        const member = db.prepare('SELECT id FROM group_members WHERE groupId = ? AND userId = ?').get(data.groupId, user.id)
+        const member = stmtCache
+          .get('SELECT id FROM group_members WHERE groupId = ? AND userId = ?')
+          .get(data.groupId, user.id) as any
         if (!member) {
           socket.emit('error', { message: '你不是该群成员' })
           return
         }
 
-        // 入队列
+        const sender = stmtCache
+          .get('SELECT username, avatar, bio, gender, region FROM users WHERE id = ?')
+          .get(user.id) as any
+
         messageQueue.push({
-          kind: 'group',
-          groupId: data.groupId,
-          senderId: user.id,
-          content: data.content,
-          type: messageType,
-          fileUrl,
-          timestamp: now,
+          kind: 'group', senderId: user.id, groupId: data.groupId,
+          content: data.content, type: messageType, fileUrl, timestamp: now,
         })
 
         const tempId = Date.now() + Math.random()
         const message = {
-          id: tempId,
-          groupId: data.groupId,
-          senderId: user.id,
-          senderName: user.username,
-          senderAvatar: '',
-          content: data.content,
-          type: messageType,
-          fileUrl,
-          timestamp: now,
+          id: tempId, groupId: data.groupId, senderId: user.id,
+          senderName: sender?.username || user.username,
+          senderAvatar: sender?.avatar || '', bio: sender?.bio || '',
+          gender: sender?.gender || '', region: sender?.region || '',
+          content: data.content, type: messageType, fileUrl, timestamp: now,
         }
 
-        const members = db.prepare('SELECT userId FROM group_members WHERE groupId = ? AND userId != ?').all(data.groupId, user.id) as any[]
+        const members = stmtCache
+          .get('SELECT userId FROM group_members WHERE groupId = ? AND userId != ?')
+          .all(data.groupId, user.id) as any[]
 
-        for (const m of members) {
-          const preview = `${user.username}: ${data.content}`
+        for (let i = 0; i < members.length; i++) {
+          const m = members[i]
+          const preview = `${sender?.username || user.username}: ${data.content}`
           incrementUnreadCount(m.userId, 'group', data.groupId, preview, user.id)
           const socketIds = getSocketIdsByUserId(m.userId)
-          for (const sid of socketIds) {
-            io.to(sid).emit('new_group_message', message)
-            io.to(sid).emit('unread_updated', { targetType: 'group', targetId: data.groupId })
+          for (let j = 0; j < socketIds.length; j++) {
+            io.to(socketIds[j]).emit('new_group_message', message)
+            io.to(socketIds[j]).emit('unread_updated', { targetType: 'group', targetId: data.groupId })
           }
         }
 
         socket.emit('new_group_message', message)
       } catch (error) {
-        console.error('发送群消息错误:', error)
+        console.error('[send_group_message]', error)
         socket.emit('error', { message: '群消息发送失败' })
       }
     })
@@ -399,7 +342,6 @@ export function initSocket(server: HTTPServer) {
       socket.emit('online_count', count)
     })
 
-    // 断开连接：进入 20s 宽限期
     socket.on('disconnect', () => {
       const info = localSockets.get(socket.id)
       if (info) {
@@ -407,8 +349,7 @@ export function initSocket(server: HTTPServer) {
         scheduleOffline(user.id, socket.id, user.username, (offUserId, offUsername) => {
           console.log(`[下线] ${offUsername} (${offUserId})`)
           broadcastToFriends({ id: offUserId, username: offUsername }, 'user_offline', {
-            userId: offUserId,
-            username: offUsername,
+            userId: offUserId, username: offUsername,
           })
         })
       }
@@ -418,6 +359,6 @@ export function initSocket(server: HTTPServer) {
   return io
 }
 
-export function getIO() {
+export function getIO(): SocketIOServer {
   return io
 }

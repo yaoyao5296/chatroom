@@ -1,56 +1,48 @@
 /**
- * 消息查询路由
+ * 消息查询路由 —— 单核极限优化版
  */
 import { Router, type Request, type Response } from 'express'
-import jwt from 'jsonwebtoken'
-import db from '../db.js'
-import { JWT_SECRET } from './auth.js'
+import { stmtCache } from '../db.js'
+import { authMiddleware } from '../middleware/auth.js'
 
 const router = Router()
 
-function authMiddleware(req: Request, res: Response, next: any) {
-  const authHeader = req.headers.authorization
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ success: false, error: '未登录' })
-    return
-  }
-
-  const token = authHeader.split(' ')[1]
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as any
-    ;(req as any).user = decoded
-    next()
-  } catch {
-    res.status(401).json({ success: false, error: '登录已过期' })
-  }
-}
-
 /**
- * 获取与某好友的聊天记录
- * GET /api/messages/:friendId
+ * 获取与某好友的聊天记录（分页 50 条）
  */
 router.get('/:friendId', authMiddleware, (req: Request, res: Response): void => {
   try {
     const userId = (req as any).user.id
-    const friendId = parseInt(req.params.friendId)
+    const friendId = parseInt(req.params.friendId as string)
+    const before = parseInt((req.query.before as string) || '0') || 0
 
-    const messages = db.prepare(`
-      SELECT id, senderId, receiverId, content, type, fileUrl, timestamp
-      FROM messages
-      WHERE (senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)
-      ORDER BY timestamp ASC
-      LIMIT 100
-    `).all(userId, friendId, friendId, userId)
+    const baseQuery = before > 0
+      ? `SELECT id, senderId, receiverId, content, type, fileUrl, timestamp
+         FROM messages
+         WHERE ((senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?))
+           AND id < ?
+         ORDER BY timestamp DESC
+         LIMIT 50`
+      : `SELECT id, senderId, receiverId, content, type, fileUrl, timestamp
+         FROM messages
+         WHERE (senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)
+         ORDER BY timestamp DESC
+         LIMIT 50`
 
-    // 确保所有时间戳带 Z 后缀（SQLite CURRENT_TIMESTAMP 存的是无时区 UTC 时间）
-    const formatted = (messages as any[]).map((m) => ({
-      ...m,
-      timestamp: m.timestamp ? m.timestamp.includes('Z') ? m.timestamp : m.timestamp.replace(' ', 'T') + 'Z' : m.timestamp,
-    }))
+    const messages = before > 0
+      ? (stmtCache.get(baseQuery).all(userId, friendId, friendId, userId, before) as any[])
+      : (stmtCache.get(baseQuery).all(userId, friendId, friendId, userId) as any[])
 
-    res.json({ success: true, messages: formatted })
-  } catch (error) {
-    console.error('Get messages error:', error)
+    // 统一为 ISO 格式 + "Z"
+    for (const m of messages) {
+      if (m.timestamp && typeof m.timestamp === 'string' && !m.timestamp.endsWith('Z')) {
+        if (!m.timestamp.includes('T')) m.timestamp = m.timestamp.replace(' ', 'T')
+        if (!m.timestamp.endsWith('Z')) m.timestamp = m.timestamp + 'Z'
+      }
+    }
+    res.json({ success: true, messages: messages.reverse() })
+  } catch (error: any) {
+    console.error('[messages]', error?.message || error)
     res.status(500).json({ success: false, error: '服务器内部错误' })
   }
 })

@@ -6,6 +6,7 @@ import { useUnreadStore } from '@/store/unreadStore'
 import { api, type Message, type GroupMessage, type GroupInfo } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
 import { MediaPreview } from '@/components/MediaPreview'
+import UserProfileModal from '@/components/UserProfileModal'
 import { ArrowLeft, Send, Paperclip, Image, FileText, Ban, X, UserPlus, Users, Edit2, LogOut, Crown, VideoIcon } from 'lucide-react'
 
 export default function Chat() {
@@ -19,12 +20,13 @@ export default function Chat() {
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null)
   const [groupMembers, setGroupMembers] = useState<Array<{ id: number; username: string; avatar: string; role: string }>>([])
   const [showAddMemberModal, setShowAddMemberModal] = useState(false)
-  const [friends, setFriends] = useState<Array<{ id: number; username: string; avatar: string }>>([])
+  const [friends, setFriends] = useState<Array<{ id: number; username: string; avatar: string; bio?: string; gender?: string; region?: string }>>([])
   const [selectedFriends, setSelectedFriends] = useState<number[]>([])
   const [showEditNameModal, setShowEditNameModal] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
   const [showGroupMenu, setShowGroupMenu] = useState(false)
   const [showMembersModal, setShowMembersModal] = useState(false)
+  const [selectedMember, setSelectedMember] = useState<{ id: number; username: string; avatar?: string; bio?: string; gender?: string; region?: string } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const typingTimeoutRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -112,6 +114,7 @@ export default function Chat() {
     api.getFriends().then((res) => {
       const f = res.friends.find((fr) => fr.id === fid)
       if (f) setFriend(f)
+      setFriends(res.friends)
     })
 
     // 加载聊天记录
@@ -495,7 +498,28 @@ export default function Chat() {
             currentGroupMessages.map((msg) => {
               const isMine = msg.senderId === user?.id
               return (
-                <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} gap-2`}>
+                  {!isMine && (
+                    <button
+                      onClick={() => setSelectedMember({
+                        id: msg.senderId,
+                        username: msg.senderName,
+                        avatar: msg.senderAvatar,
+                        bio: msg.bio,
+                        gender: msg.gender,
+                        region: msg.region,
+                      })}
+                      className="flex-shrink-0 mt-1"
+                    >
+                      {msg.senderAvatar ? (
+                        <img src={msg.senderAvatar} alt="" className="w-8 h-8 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-semibold">
+                          {msg.senderName[0]?.toUpperCase() || '?'}
+                        </div>
+                      )}
+                    </button>
+                  )}
                   <div className={`max-w-[75%] ${isMine ? 'order-1' : 'order-1'}`}>
                     {!isMine && <p className="text-xs text-gray-500 mb-1 ml-1">{msg.senderName}</p>}
                     {msg.type === 'text' && (
@@ -537,6 +561,17 @@ export default function Chat() {
                     )}
                     <p className={`text-xs text-gray-600 mt-1 ${isMine ? 'text-right' : 'text-left'}`}>{formatTime(msg.timestamp)}</p>
                   </div>
+                  {isMine && (
+                    <div className="flex-shrink-0 w-8 mt-1">
+                      {msg.senderAvatar ? (
+                        <img src={msg.senderAvatar} alt="" className="w-8 h-8 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-semibold">
+                          {msg.senderName[0]?.toUpperCase() || (user?.username?.[0]?.toUpperCase() || '?')}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })
@@ -939,7 +974,16 @@ export default function Chat() {
                 return (
                   <div
                     key={member.id}
-                    className="flex items-center gap-3 p-3 hover:bg-gray-700/50 rounded-xl"
+                    className="flex items-center gap-3 p-3 hover:bg-gray-700/50 rounded-xl cursor-pointer"
+                    onClick={() => {
+                      if (!isMe) {
+                        setSelectedMember({
+                          id: member.id,
+                          username: member.username,
+                          avatar: member.avatar,
+                        })
+                      }
+                    }}
                   >
                     <div className="relative">
                       {member.avatar ? (
@@ -969,9 +1013,9 @@ export default function Chat() {
                     </div>
                     {!isOwner && isOwner === false && groupInfo?.ownerId === user?.id && (
                       <button
-                        onClick={async () => {
+                        onClick={(e) => {
+                          e.stopPropagation()
                           if (!confirm(`确定将群主转让给 ${member.username} 吗？`)) return
-                          // 转让群主功能：这里简化为先让对方成为 owner，需要后端支持
                           alert('转让群主功能待后端支持')
                         }}
                         className="text-xs text-gray-400 hover:text-white"
@@ -985,6 +1029,31 @@ export default function Chat() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 用户资料卡弹窗 */}
+      {selectedMember && (
+        <UserProfileModal
+          user={{
+            id: selectedMember.id,
+            username: selectedMember.username,
+            avatar: selectedMember.avatar,
+            bio: selectedMember.bio,
+            gender: selectedMember.gender,
+            region: selectedMember.region,
+          }}
+          currentUserId={user?.id || 0}
+          isFriend={friends.some((f) => f.id === selectedMember.id)}
+          onClose={() => setSelectedMember(null)}
+          onAddFriend={async (userId: number, username: string) => {
+            const res = await api.sendFriendRequest(username)
+            try {
+              const fr = await api.getFriends()
+              setFriends(fr.friends)
+            } catch {}
+            return res
+          }}
+        />
       )}
     </div>
   )

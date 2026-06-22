@@ -5,8 +5,18 @@ import { useMomentsStore } from '@/store/momentsStore'
 import { api, type Post, type Comment } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
 import { ArrowLeft, MessageCircle, Send, ImageIcon, Trash2, X, VideoIcon } from 'lucide-react'
+import UserProfileModal from '@/components/UserProfileModal'
 
-function PostCard({ post, onComment, onDelete, onEnlarge }: { post: Post; onComment: () => void; onDelete: (id: number) => void; onEnlarge: (url: string) => void }) {
+type AuthorUser = {
+  userId: number
+  username: string
+  avatar?: string
+  bio?: string
+  gender?: string
+  region?: string
+}
+
+function PostCard({ post, onComment, onDelete, onEnlarge, onAvatarClick }: { post: Post; onComment: () => void; onDelete: (id: number) => void; onEnlarge: (url: string) => void; onAvatarClick: (author: AuthorUser) => void }) {
   const user = useAuthStore((s) => s.user)
   const [showComments, setShowComments] = useState(false)
   const [comments, setComments] = useState<Comment[]>([])
@@ -85,13 +95,15 @@ function PostCard({ post, onComment, onDelete, onEnlarge }: { post: Post; onComm
 
       {/* 作者信息 */}
       <div className="px-5 pb-3 flex items-start gap-2">
-        {post.avatar ? (
-          <img src={post.avatar} alt="" className="w-6 h-6 rounded-full object-cover mt-0.5 flex-shrink-0" />
-        ) : (
-          <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-semibold mt-0.5 flex-shrink-0">
-            {post.username[0]?.toUpperCase()}
-          </div>
-        )}
+        <button onClick={() => onAvatarClick({ userId: post.userId, username: post.username, avatar: post.avatar, bio: post.bio, gender: post.gender, region: post.region })} className="flex-shrink-0">
+          {post.avatar ? (
+            <img src={post.avatar} alt="" className="w-6 h-6 rounded-full object-cover mt-0.5" />
+          ) : (
+            <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-semibold mt-0.5">
+              {post.username[0]?.toUpperCase()}
+            </div>
+          )}
+        </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 text-xs">
             <span className="text-blue-400 font-medium">{post.username}</span>
@@ -144,18 +156,30 @@ function PostCard({ post, onComment, onDelete, onEnlarge }: { post: Post; onComm
               ) : (
                 comments.map((c) => (
                   <div key={c.id} className="flex gap-2.5">
-                    {c.avatar ? (
-                      <img src={c.avatar} alt="" className="w-7 h-7 rounded-full object-cover mt-0.5 flex-shrink-0" />
-                    ) : (
-                      <div className="w-7 h-7 rounded-full bg-gray-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
-                        {c.username[0]?.toUpperCase()}
-                      </div>
-                    )}
+                    <button onClick={() => onAvatarClick({ userId: c.userId, username: c.username, avatar: c.avatar, bio: c.bio, gender: c.gender, region: c.region })} className="flex-shrink-0">
+                      {c.avatar ? (
+                        <img src={c.avatar} alt="" className="w-7 h-7 rounded-full object-cover mt-0.5" />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-gray-600 flex items-center justify-center text-white text-xs font-semibold mt-0.5">
+                          {c.username[0]?.toUpperCase()}
+                        </div>
+                      )}
+                    </button>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-baseline gap-2">
+                      <div className="flex items-baseline gap-1.5 flex-wrap">
                         <span className="text-xs text-blue-400 font-medium">{c.username}</span>
+                        {c.gender === 'male' && <span className="text-[10px] text-blue-400">♂</span>}
+                        {c.gender === 'female' && <span className="text-[10px] text-pink-400">♀</span>}
+                        {c.gender === 'other' && <span className="text-[10px] text-gray-400">⚧</span>}
+                        {c.region && (
+                          <span className="text-gray-600 text-[11px] flex items-center gap-0.5">
+                            <span>📍</span>
+                            <span className="truncate max-w-[80px]">{c.region}</span>
+                          </span>
+                        )}
                         <span className="text-xs text-gray-600">{formatTime(c.createdAt)}</span>
                       </div>
+                      {c.bio && <p className="text-[11px] text-gray-500 italic mt-0.5 truncate">"{c.bio}"</p>}
                       <p className="text-sm text-gray-300 mt-0.5">{c.content}</p>
                     </div>
                   </div>
@@ -198,6 +222,8 @@ export default function Moments() {
   const addComment = useMomentsStore((s) => s.addComment)
   const [loading, setLoading] = useState(true)
   const [enlargedImage, setEnlargedImage] = useState('')
+  const [selectedProfileUser, setSelectedProfileUser] = useState<AuthorUser | null>(null)
+  const [friends, setFriends] = useState<Array<{ id: number }>>([])
 
   const loadPosts = useCallback(async () => {
     try {
@@ -210,6 +236,7 @@ export default function Moments() {
 
   useEffect(() => {
     loadPosts()
+    api.getFriends().then((res) => setFriends(res.friends)).catch(() => {})
   }, [loadPosts])
 
   // Socket 实时监听
@@ -250,6 +277,20 @@ export default function Moments() {
     } catch (err: any) {
       alert(err.message)
     }
+  }
+
+  const handleAvatarClick = (author: AuthorUser) => {
+    setSelectedProfileUser(author)
+  }
+
+  const handleAddFriend = async (userId: number, username: string) => {
+    const res = await api.sendFriendRequest(username)
+    // 添加成功后刷新好友列表，isFriend 判断会自动更新
+    try {
+      const fr = await api.getFriends()
+      setFriends(fr.friends)
+    } catch {}
+    return res
   }
 
   return (
@@ -304,6 +345,7 @@ export default function Moments() {
               onComment={() => {}}
               onDelete={handleDelete}
               onEnlarge={(url) => setEnlargedImage(url)}
+              onAvatarClick={handleAvatarClick}
             />
           ))
         )}
@@ -328,6 +370,24 @@ export default function Moments() {
             onClick={(e) => e.stopPropagation()}
           />
         </div>
+      )}
+
+      {/* 用户资料卡弹窗 */}
+      {selectedProfileUser && (
+        <UserProfileModal
+          user={{
+            id: selectedProfileUser.userId,
+            username: selectedProfileUser.username,
+            avatar: selectedProfileUser.avatar,
+            bio: selectedProfileUser.bio,
+            gender: selectedProfileUser.gender,
+            region: selectedProfileUser.region,
+          }}
+          currentUserId={user?.id || 0}
+          isFriend={friends.some((f) => f.id === selectedProfileUser.userId)}
+          onClose={() => setSelectedProfileUser(null)}
+          onAddFriend={handleAddFriend}
+        />
       )}
     </div>
   )

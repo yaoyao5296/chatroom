@@ -468,7 +468,7 @@ export default function Friends() {
                       {friend.active === 1 && onlineUsers.includes(friend.id) && (
                         <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-[#1E293B]" />
                       )}
-                      {unread[`friend:${friend.id}`] && (
+                      {unread[`friend:${friend.id}`]?.count > 0 && (
                         <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-[#1E293B]">
                           {unread[`friend:${friend.id}`].count > 99 ? '99+' : unread[`friend:${friend.id}`].count}
                         </div>
@@ -492,6 +492,9 @@ export default function Friends() {
                                   <span className="flex items-center gap-0.5 truncate">
                                     <span>📍</span>
                                     <span className="truncate max-w-[80px]">{friend.region}</span>
+                                    {friend.gender === 'male' && <span className="text-blue-400">♂</span>}
+                                    {friend.gender === 'female' && <span className="text-pink-400">♀</span>}
+                                    {friend.gender === 'other' && <span className="text-gray-400">⚧</span>}
                                   </span>
                                 )}
                                 {friend.bio && (
@@ -503,7 +506,12 @@ export default function Friends() {
                         </>
                       ) : (
                         <>
-                          <p className="text-gray-400 text-sm font-medium">{friend.username}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-gray-400 text-sm font-medium">{friend.username}</p>
+                            {friend.gender === 'male' && <span className="text-[10px] text-blue-400">♂</span>}
+                            {friend.gender === 'female' && <span className="text-[10px] text-pink-400">♀</span>}
+                            {friend.gender === 'other' && <span className="text-[10px] text-gray-400">⚧</span>}
+                          </div>
                           <p className="text-xs text-red-400/80">已注销 · 不可聊天</p>
                         </>
                       )}
@@ -549,7 +557,7 @@ export default function Friends() {
                       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center">
                         <Users className="w-5 h-5 text-white" />
                       </div>
-                      {groupUnread && (
+                      {groupUnread?.count > 0 && (
                         <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-[#1E293B]">
                           {groupUnread.count > 99 ? '99+' : groupUnread.count}
                         </div>

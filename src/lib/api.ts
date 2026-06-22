@@ -130,6 +130,51 @@ export const api = {
     })
   },
 
+  // 人脸登录（用户可选填用户名，不填则全库匹配）
+  loginWithFace(faceDescriptor: number[], username?: string) {
+    return request<{ success: boolean; score?: number; user: { id: number; username: string; avatar?: string; vip?: number }; token: string }>('/auth/face/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, faceDescriptor: faceDescriptor.join(',') }),
+    })
+  },
+
+  // 人脸特征注册（登录后）
+  registerFace(faceDescriptor: number[]) {
+    return request<{ success: boolean; message: string }>('/auth/face/register', {
+      method: 'POST',
+      body: JSON.stringify({ faceDescriptor: faceDescriptor.join(',') }),
+    })
+  },
+
+  // 修改密码
+  changePassword(oldPassword: string, newPassword: string) {
+    return request<{ success: boolean; message: string }>('/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({ oldPassword, newPassword }),
+    })
+  },
+
+  // 忘记密码：通过用户名重置密码
+  forgotPassword(username: string, newPassword: string) {
+    return request<{ success: boolean; message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ username, newPassword }),
+    })
+  },
+
+  // 获取客户端 IP 归属地（无需登录）
+  getLocationByIp() {
+    return request<{ success: boolean; ip: string; location: string; isPrivate?: boolean; detail?: any }>('/user/location/ip')
+  },
+
+  // 浏览器获取定位后上报（保存为用户 region）
+  updateLocation(payload: { latitude?: number; longitude?: number; location?: string }) {
+    return request<{ success: boolean; message: string; region: string }>('/user/location', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
   // 用户
   getProfile() {
     return request<{
@@ -402,6 +447,9 @@ export interface Comment {
   createdAt: string
   username: string
   avatar: string
+  bio?: string
+  gender?: string
+  region?: string
 }
 
 export interface GroupMessage {
@@ -409,11 +457,14 @@ export interface GroupMessage {
   groupId: number
   senderId: number
   content: string
-  type: 'text' | 'image' | 'file'
+  type: 'text' | 'image' | 'file' | 'video'
   fileUrl: string
   timestamp: string
   senderName: string
   senderAvatar: string
+  bio?: string
+  gender?: string
+  region?: string
 }
 
 export interface GroupInfo {
