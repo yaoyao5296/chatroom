@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { api, setApiBaseUrl, getApiBaseUrl } from '@/lib/api'
@@ -59,7 +59,6 @@ export default function Settings() {
   const [faceError, setFaceError] = useState('')
   const [faceSuccess, setFaceSuccess] = useState('')
 
-  const serverUrlRef = useRef<HTMLVideoElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -386,7 +385,7 @@ export default function Settings() {
             >
               {avatar ? (
                 <img
-                  src={avatar}
+                  src={resolveStaticUrl(avatar)}
                   alt=""
                   className="w-20 h-20 rounded-full object-cover border-4 border-gray-700"
                 />

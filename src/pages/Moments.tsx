@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useMomentsStore } from '@/store/momentsStore'
-import { api, type Post, type Comment } from '@/lib/api'
+import { api, resolveStaticUrl, type Post, type Comment } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
 import { ArrowLeft, MessageCircle, Send, ImageIcon, Trash2, X, VideoIcon } from 'lucide-react'
 import UserProfileModal from '@/components/UserProfileModal'
@@ -97,7 +97,7 @@ function PostCard({ post, onComment, onDelete, onEnlarge, onAvatarClick }: { pos
       <div className="px-5 pb-3 flex items-start gap-2">
         <button onClick={() => onAvatarClick({ userId: post.userId, username: post.username, avatar: post.avatar, bio: post.bio, gender: post.gender, region: post.region })} className="flex-shrink-0">
           {post.avatar ? (
-            <img src={post.avatar} alt="" className="w-6 h-6 rounded-full object-cover mt-0.5" />
+            <img src={resolveStaticUrl(post.avatar)} alt="" className="w-6 h-6 rounded-full object-cover mt-0.5" />
           ) : (
             <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-semibold mt-0.5">
               {post.username[0]?.toUpperCase()}
@@ -158,7 +158,7 @@ function PostCard({ post, onComment, onDelete, onEnlarge, onAvatarClick }: { pos
                   <div key={c.id} className="flex gap-2.5">
                     <button onClick={() => onAvatarClick({ userId: c.userId, username: c.username, avatar: c.avatar, bio: c.bio, gender: c.gender, region: c.region })} className="flex-shrink-0">
                       {c.avatar ? (
-                        <img src={c.avatar} alt="" className="w-7 h-7 rounded-full object-cover mt-0.5" />
+                        <img src={resolveStaticUrl(c.avatar)} alt="" className="w-7 h-7 rounded-full object-cover mt-0.5" />
                       ) : (
                         <div className="w-7 h-7 rounded-full bg-gray-600 flex items-center justify-center text-white text-xs font-semibold mt-0.5">
                           {c.username[0]?.toUpperCase()}

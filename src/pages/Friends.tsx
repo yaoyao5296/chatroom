@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useChatStore } from '@/store/chatStore'
 import { useUnreadStore } from '@/store/unreadStore'
-import { api, type GroupInfo } from '@/lib/api'
+import { api, resolveStaticUrl, type GroupInfo } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
 import { MessageCircle, LogOut, UserPlus, Search, Users, Camera, Trash2, X, Settings as SettingsIcon, Newspaper, Crown, Bell, Check, Bot, Plus } from 'lucide-react'
 
@@ -14,7 +14,7 @@ interface Friend {
   bio?: string
   gender?: string
   region?: string
-  active: number
+  active?: number
 }
 
 export default function Friends() {
@@ -459,7 +459,7 @@ export default function Friends() {
                   >
                     <div className="relative">
                       {friend.avatar ? (
-                        <img src={friend.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
+                        <img src={resolveStaticUrl(friend.avatar)} alt="" className="w-10 h-10 rounded-full object-cover" />
                       ) : (
                         <div className="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center text-white font-semibold text-sm">
                           {friend.username[0]?.toUpperCase()}

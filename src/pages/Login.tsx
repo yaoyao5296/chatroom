@@ -92,11 +92,11 @@ export default function Login() {
     setSuccess('')
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setFaceError('当前浏览器不支持摄像头访问，请在 HTTPS 页面打开')
+        setFaceError('当前浏览器不支持摄像头访问，请使用 Chrome/Safari 等现代浏览器')
         return
       }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 320, height: 240, facingMode: 'user' },
+        video: { facingMode: 'user' },
         audio: false,
       })
       streamRef.current = stream
@@ -106,7 +106,16 @@ export default function Login() {
         setCameraReady(true)
       }
     } catch (err: any) {
-      setFaceError(err?.message || '无法打开摄像头，请检查权限')
+      const msg = err?.message || ''
+      if (msg.includes('Permission denied') || msg.includes('PermissionDisallowed')) {
+        setFaceError('摄像头权限被拒绝，请在浏览器设置中允许访问摄像头后重试')
+      } else if (msg.includes('NotFoundError') || msg.includes('DevicesNotFoundError')) {
+        setFaceError('未检测到可用摄像头，请确认设备已连接摄像头')
+      } else if (msg.includes('NotAllowed') || msg.includes('NotReadable')) {
+        setFaceError('摄像头被其他应用占用，请关闭其他使用摄像头的程序后重试')
+      } else {
+        setFaceError(msg || '无法打开摄像头，请检查权限设置')
+      }
     }
   }
 

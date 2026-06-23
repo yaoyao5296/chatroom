@@ -6,7 +6,14 @@ interface User {
   id: number
   username: string
   avatar?: string
+  bio?: string
+  gender?: string
+  region?: string
+  email?: string
+  phone?: string
   vip?: number
+  vipExpiresAt?: string
+  faceDescriptor?: string
 }
 
 interface AuthState {

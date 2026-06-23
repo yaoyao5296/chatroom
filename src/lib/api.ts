@@ -24,6 +24,37 @@ export function setApiBaseUrl(url: string) {
   localStorage.setItem('api_base_url', API_BASE)
 }
 
+/** 获取完整的后端基础 URL（不含 /api 后缀），用于拼接静态资源路径 */
+export function getBackendBase(): string {
+  if (isNativeApp() && isAndroid()) {
+    const stored = localStorage.getItem('api_base_url')
+    if (stored) {
+      // 去掉末尾的 /api
+      return stored.replace(/\/api\/?$/, '')
+    }
+    return 'http://10.0.2.2:3001'
+  }
+  // 开发/预览环境：使用当前页面 origin 作为后端地址
+  if (typeof window !== 'undefined') {
+    return window.location.origin
+  }
+  return ''
+}
+
+/**
+ * 拼接静态资源完整 URL
+ * @param relativePath 例如 "/uploads/xxx.jpg"
+ * @returns 完整 URL
+ */
+export function resolveStaticUrl(relativePath: string): string {
+  if (!relativePath) return ''
+  // 如果已经是完整 URL，直接返回
+  if (relativePath.startsWith('http://') || relativePath.startsWith('https://')) {
+    return relativePath
+  }
+  return getBackendBase() + relativePath
+}
+
 export function getApiBaseUrl(): string {
   return API_BASE
 }
@@ -420,7 +451,7 @@ export interface Message {
   senderId: number
   receiverId: number
   content: string
-  type: 'text' | 'image' | 'file'
+  type: 'text' | 'image' | 'file' | 'video'
   fileUrl: string
   timestamp: string
 }

@@ -5,6 +5,7 @@
  */
 import { useState } from 'react'
 import { X, MapPin, UserPlus, Check, Loader2, Shield } from 'lucide-react'
+import { resolveStaticUrl } from '@/lib/api'
 
 interface UserProfileModalProps {
   /** 要展示的用户资料（来自动态/好友数据） */
@@ -23,7 +24,7 @@ interface UserProfileModalProps {
   /** 关闭回调 */
   onClose: () => void
   /** 发送好友请求回调 */
-  onAddFriend: (userId: number, username: string) => Promise<void>
+  onAddFriend: (userId: number, username: string) => Promise<any>
 }
 
 const GENDER_CONFIG: Record<string, { emoji: string; label: string; color: string }> = {
@@ -83,7 +84,7 @@ export default function UserProfileModal({
           <div className="absolute -bottom-10 left-1/2 -translate-x-1/2">
             {user.avatar ? (
               <img
-                src={user.avatar}
+                src={resolveStaticUrl(user.avatar || '')}
                 alt=""
                 className="w-20 h-20 rounded-full object-cover border-4 border-[#1E293B] shadow-lg"
               />

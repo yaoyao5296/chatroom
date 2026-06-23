@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useChatStore } from '@/store/chatStore'
 import { useUnreadStore } from '@/store/unreadStore'
-import { api, type Message, type GroupMessage, type GroupInfo } from '@/lib/api'
+import { api, resolveStaticUrl, type Message, type GroupMessage, type GroupInfo } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
 import { MediaPreview } from '@/components/MediaPreview'
 import UserProfileModal from '@/components/UserProfileModal'
@@ -414,7 +414,7 @@ export default function Chat() {
               {groupInfo?.name?.[0]?.toUpperCase() || 'G'}
             </div>
           ) : friend?.avatar ? (
-            <img src={friend.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
+            <img src={resolveStaticUrl(friend.avatar)} alt="" className="w-10 h-10 rounded-full object-cover" />
           ) : (
             <div className="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center text-white font-semibold">
               {friend?.username?.[0]?.toUpperCase() || '?'}
@@ -987,7 +987,7 @@ export default function Chat() {
                   >
                     <div className="relative">
                       {member.avatar ? (
-                        <img src={member.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
+                        <img src={resolveStaticUrl(member.avatar)} alt="" className="w-10 h-10 rounded-full object-cover" />
                       ) : (
                         <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-semibold">
                           {member.username[0]?.toUpperCase() || '?'}
