@@ -786,7 +786,7 @@ export default function Chat() {
                       />
                       <div className="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center text-white font-semibold">
                         {friend.avatar ? (
-                          <img src={friend.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+                          <img src={resolveStaticUrl(friend.avatar)} alt="" className="w-full h-full rounded-full object-cover" />
                         ) : (
                           friend.username[0]?.toUpperCase() || '?'
                         )}

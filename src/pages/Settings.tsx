@@ -674,7 +674,7 @@ export default function Settings() {
             <h3 className="text-lg font-semibold text-white mb-4">更换头像</h3>
             <div className="flex justify-center mb-6">
               {avatar ? (
-                <img src={avatar} alt="" className="w-28 h-28 rounded-full object-cover border-4 border-gray-700" />
+                <img src={resolveStaticUrl(avatar)} alt="" className="w-28 h-28 rounded-full object-cover border-4 border-gray-700" />
               ) : (
                 <div className="w-28 h-28 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-4xl font-semibold border-4 border-gray-700">
                   {initial}

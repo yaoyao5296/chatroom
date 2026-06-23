@@ -231,7 +231,7 @@ export default function Friends() {
   }
 
   const currentUser = updateUserInfo()
-  const userAvatar = currentUser?.avatar || ''
+  const userAvatar = resolveStaticUrl(currentUser?.avatar || '')
 
   const handleLogout = () => {
     logout()
