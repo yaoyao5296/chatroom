@@ -33,8 +33,16 @@ const __dirname = path.dirname(__filename)
 
 const app = express()
 
-// ==================== 1) 内联 CORS（3 行，代替 cors 包）====================
+// ==================== 1) 安全头 + CORS ====================
 app.use((req: Request, res: Response, next) => {
+  // 安全头
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('X-XSS-Protection', '1; mode=block')
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+  res.setHeader('X-DNS-Prefetch-Control', 'off')
+
+  // CORS
   const origin = req.headers.origin || '*'
   res.setHeader('Access-Control-Allow-Origin', origin)
   res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS')
@@ -80,7 +88,7 @@ app.use((req: Request, res: Response, next) => {
       }
     }
     if (typeof chunk === 'string') {
-      const enc = typeof encodingOrCb === 'string' ? encodingOrCb : 'utf8'
+      const enc = (typeof encodingOrCb === 'string' ? encodingOrCb : 'utf8') as BufferEncoding
       chunks!.push(Buffer.from(chunk, enc))
     } else if (chunk instanceof Uint8Array) {
       chunks!.push(chunk)
@@ -91,7 +99,7 @@ app.use((req: Request, res: Response, next) => {
   ;(res as any).end = function (chunk?: any, encodingOrCb?: any, cb?: any) {
     if (chunk !== undefined && chunk !== null) {
       if (typeof chunk === 'string') {
-        const enc = typeof encodingOrCb === 'string' ? encodingOrCb : 'utf8'
+        const enc = (typeof encodingOrCb === 'string' ? encodingOrCb : 'utf8') as BufferEncoding
         chunks = chunks || []
         chunks.push(Buffer.from(chunk, enc))
       } else if (chunk instanceof Uint8Array) {
@@ -149,10 +157,12 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // ==================== 6) 路由挂载 ====================
+// 注意：更具体的路径必须放在前面，否则会被父路径路由拦截
 app.use('/api/auth', authRoutes)
 app.use('/api/friends', friendsRoutes)
 app.use('/api/messages', messagesRoutes)
 app.use('/api/upload', uploadRoutes)
+app.use('/api/user/location', locationRoutes)
 app.use('/api/user', userRoutes)
 app.use('/api/verification', verificationRoutes)
 app.use('/api/download', downloadRoutes)
@@ -161,7 +171,6 @@ app.use('/api/vip', vipRoutes)
 app.use('/api/ai', aiRoutes)
 app.use('/api/groups', groupRoutes)
 app.use('/api/unread', unreadRoutes)
-app.use('/api/user/location', locationRoutes)
 
 // ==================== 7) Health check（零依赖） ====================
 app.use('/api/health', (_req: Request, res: Response) => {

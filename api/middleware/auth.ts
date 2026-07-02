@@ -4,12 +4,45 @@
  * 优化：
  *  1) 统一 authMiddleware —— 消除 4+ 份重复副本
  *  2) JWT 本地缓存（按 token 哈希 + 过期时间）：避免每次重复校验
- *  3) JWT_SECRET 从环境变量读取，没有则使用默认值
+ *  3) JWT_SECRET 从环境变量读取，没有则自动生成随机密钥并持久化到文件
  */
 import type { Request, Response } from 'express'
 import jwt from 'jsonwebtoken'
+import crypto from 'crypto'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
 
-export const JWT_SECRET = process.env.JWT_SECRET || 'chat-secret-key-2024'
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const SECRET_FILE = path.join(__dirname, '..', '.jwt_secret')
+
+function loadOrGenerateSecret(): string {
+  // 1. 环境变量优先
+  if (process.env.JWT_SECRET) {
+    return process.env.JWT_SECRET
+  }
+
+  // 2. 尝试读取持久化的密钥文件
+  try {
+    if (fs.existsSync(SECRET_FILE)) {
+      const secret = fs.readFileSync(SECRET_FILE, 'utf-8').trim()
+      if (secret.length >= 32) return secret
+    }
+  } catch {}
+
+  // 3. 生成随机密钥并持久化
+  const secret = crypto.randomBytes(32).toString('hex')
+  try {
+    fs.writeFileSync(SECRET_FILE, secret, { mode: 0o600 })
+    console.log('[jwt] 已生成新的随机密钥，存储在 .jwt_secret')
+  } catch {
+    console.warn('[jwt] 无法持久化密钥文件，密钥仅本次会话有效')
+  }
+  return secret
+}
+
+export const JWT_SECRET = loadOrGenerateSecret()
 export const JWT_EXPIRES = '7d'
 
 // JWT 验证结果缓存（单核下 JWT verify 是 CPU 大头，单次 ~0.1-0.3ms）

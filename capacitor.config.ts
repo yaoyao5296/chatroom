@@ -4,22 +4,28 @@ const config: CapacitorConfig = {
   appId: 'com.chatroom.app',
   appName: 'ChatRoom',
   webDir: 'dist',
-  // Android 客户端加载本地 dist 资源（生产环境可配置 https 服务器地址）
+  // Android 客户端加载本地 dist 资源
   server: {
-    url: '',
+    androidScheme: 'https',
     cleartext: true,
-    androidScheme: 'https'
+    allowNavigation: ['*']
   },
   android: {
     allowMixedContent: true,
     captureInput: true,
-    webContentsDebuggingEnabled: true
+    webContentsDebuggingEnabled: true,
+    // Android 键盘不遮挡输入框
+    resizeOnFullScreen: true
   },
   plugins: {
     SplashScreen: {
       launchShowDuration: 1500,
       backgroundColor: '#0F172A',
       showSpinner: false
+    },
+    Keyboard: {
+      resize: 'body',
+      style: 'dark'
     }
   }
 }

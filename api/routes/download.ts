@@ -20,7 +20,12 @@ router.get('/:filename', (req: Request, res: Response): void => {
       res.status(400).json({ success: false, error: '无效的文件名' })
       return
     }
-    const fullPath = path.join(UPLOAD_DIR, filename)
+    const fullPath = path.resolve(UPLOAD_DIR, filename)
+    // 二次防护：确保解析后的路径在 uploads 目录内
+    if (!fullPath.startsWith(path.resolve(UPLOAD_DIR))) {
+      res.status(400).json({ success: false, error: '无效的文件名' })
+      return
+    }
     if (!fs.existsSync(fullPath)) {
       res.status(404).json({ success: false, error: '文件不存在' })
       return

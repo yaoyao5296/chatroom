@@ -119,9 +119,12 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     const data = await res.json()
 
     if (!res.ok) {
-      // 401 / 403：认证失败不算网络问题
+      // 401 / 403：清除登录状态并触发全局跳转
       if (res.status === 401 || res.status === 403) {
-        throw new Error(data.error || '认证失败，请重新登录')
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        window.dispatchEvent(new CustomEvent('auth-expired'))
+        throw new Error(data.error || '登录已过期，请重新登录')
       }
       // 5xx：服务器不可达
       if (res.status >= 500) {
@@ -219,6 +222,7 @@ export const api = {
         bio: string
         gender: string
         region: string
+        age: number
         vip: number
       }
     }>('/user/profile')
@@ -231,7 +235,7 @@ export const api = {
     })
   },
 
-  updateProfile(payload: { username?: string; bio?: string; gender?: string; region?: string }) {
+  updateProfile(payload: { username?: string; bio?: string; gender?: string; region?: string; age?: number }) {
     return request<{ success: boolean }>('/user/profile', {
       method: 'PUT',
       body: JSON.stringify(payload),
@@ -295,6 +299,32 @@ export const api = {
     })
   },
 
+  // 修改密码（支持多种验证方式：旧密码/邮箱验证码/人脸验证）
+  changePasswordWithVerification(params: {
+    oldPassword?: string
+    newPassword: string
+    verifyMethod: 'old_password' | 'email_code' | 'face'
+    email?: string
+    code?: string
+    faceDescriptor?: number[]
+  }) {
+    return request<{ success: boolean; message: string }>('/auth/password/change', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...params,
+        faceDescriptor: params.faceDescriptor?.join(','),
+      }),
+    })
+  },
+
+  // 发送邮箱验证码（用于修改密码）
+  sendPasswordResetCode(email: string) {
+    return request<{ success: boolean; sent: boolean; message: string; code?: string }>('/auth/password/send-code', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    })
+  },
+
   // 验证码
   sendVerificationCode(target: string) {
     return request<{ success: boolean; sent: boolean; message: string; code?: string }>('/verification/send', {
@@ -311,8 +341,9 @@ export const api = {
   },
 
   // 动态
-  getPosts() {
-    return request<{ success: boolean; posts: Array<Post> }>('/posts')
+  getPosts(tab?: string) {
+    const query = tab ? `?tab=${tab}` : ''
+    return request<{ success: boolean; posts: Array<Post> }>(`/posts${query}`)
   },
 
   createPost(content: string, imageUrl?: string) {
@@ -398,9 +429,20 @@ export const api = {
   },
 
   addGroupMembers(groupId: number, newMemberIds: number[]) {
-    return request<{ success: boolean; added: number; memberCount: number }>(`/groups/${groupId}/members`, {
+    return request<{ success: boolean; invited: number; message: string }>(`/groups/${groupId}/members`, {
       method: 'POST',
       body: JSON.stringify({ newMemberIds }),
+    })
+  },
+
+  getGroupInvitations() {
+    return request<{ success: boolean; invitations: Array<{ id: number; groupId: number; inviterId: number; status: string; createdAt: string; groupName: string; inviterName: string; inviterAvatar: string }> }>('/groups/invitations/pending')
+  },
+
+  respondGroupInvitation(invitationId: number, action: 'accept' | 'decline') {
+    return request<{ success: boolean; message: string; groupId?: number }>(`/groups/invitations/${invitationId}/respond`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
     })
   },
 
@@ -468,6 +510,7 @@ export interface Post {
   gender: string
   region: string
   commentCount: number
+  isOfficial?: number
 }
 
 export interface Comment {

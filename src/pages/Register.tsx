@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { api } from '@/lib/api'
-import { MessageCircle } from 'lucide-react'
+import { MessageCircle, ScanFace } from 'lucide-react'
 
 export default function Register() {
   const [username, setUsername] = useState('')
@@ -17,6 +17,9 @@ export default function Register() {
   const timerRef = useRef<ReturnType<typeof setInterval>>()
   const register = useAuthStore((s) => s.register)
   const navigate = useNavigate()
+
+  // 人脸绑定提醒
+  const [showFaceReminder, setShowFaceReminder] = useState(false)
 
   const startCountdown = () => {
     setCountdown(60)
@@ -72,7 +75,13 @@ export default function Register() {
     setLoading(true)
     try {
       await register(username, password, email || undefined, code || undefined)
-      navigate('/friends')
+      // 注册成功后，检查是否已提醒过绑定人脸
+      const hasReminded = localStorage.getItem('face_reminded')
+      if (!hasReminded) {
+        setShowFaceReminder(true)
+      } else {
+        navigate('/friends')
+      }
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -80,8 +89,18 @@ export default function Register() {
     }
   }
 
+  const handleFaceReminderClose = (goToSettings: boolean) => {
+    localStorage.setItem('face_reminded', 'true')
+    setShowFaceReminder(false)
+    if (goToSettings) {
+      navigate('/settings')
+    } else {
+      navigate('/friends')
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-[#0F172A] flex items-center justify-center p-4">
+    <div className="h-screen bg-[#0F172A] flex items-start justify-center p-4 overflow-y-auto">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-500/10 mb-4">
@@ -188,6 +207,41 @@ export default function Register() {
           </p>
         </form>
       </div>
+
+      {/* 人脸绑定提醒弹窗 */}
+      {showFaceReminder && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1E293B] rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-purple-500/10 flex items-center justify-center">
+                <ScanFace className="w-6 h-6 text-purple-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-white">注册成功！</h3>
+                <p className="text-sm text-gray-400">建议绑定人脸识别</p>
+              </div>
+            </div>
+            <p className="text-gray-300 text-sm mb-4">
+              恭喜你注册成功！为了账号安全，建议你在设置中绑定人脸识别，之后即可使用人脸快速登录，无需输入密码。
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleFaceReminderClose(false)}
+                className="flex-1 py-2.5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition-colors"
+              >
+                稍后再说
+              </button>
+              <button
+                onClick={() => handleFaceReminderClose(true)}
+                className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm transition-colors flex items-center justify-center gap-2"
+              >
+                <ScanFace className="w-4 h-4" />
+                去绑定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

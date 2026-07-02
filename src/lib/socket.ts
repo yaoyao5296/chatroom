@@ -40,6 +40,14 @@ function stopHeartbeat() {
 export function connectSocket(token: string) {
   if (socket?.connected) return socket
 
+  // 如果已有旧连接（断开中），先清理
+  if (socket) {
+    stopHeartbeat()
+    socket.removeAllListeners()
+    socket.disconnect()
+    socket = null
+  }
+
   const url = getSocketUrl()
 
   socket = io(url, {

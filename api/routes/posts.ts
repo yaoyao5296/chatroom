@@ -9,17 +9,60 @@ const router = Router()
 
 router.get('/', authMiddleware, (req: Request, res: Response): void => {
   try {
-    const posts = stmtCache
-      .get(`SELECT p.id, p.userId, p.content, p.imageUrl,
-                 CASE WHEN instr(p.createdAt, 'T') THEN p.createdAt ELSE p.createdAt || 'Z' END AS createdAt,
-                 u.username, u.avatar, u.bio, u.gender, u.region,
-                 (SELECT COUNT(*) FROM comments WHERE postId = p.id) AS commentCount
-           FROM posts p
-           JOIN users u ON p.userId = u.id
-           WHERE u.active = 1
-           ORDER BY p.createdAt DESC
-           LIMIT 50`)
-      .all() as any[]
+    const userId = (req as any).user.id
+    const tab = (req.query.tab as string) || 'all'
+
+    let posts: any[]
+    if (tab === 'official') {
+      // 官方动态：只显示官方账号的帖子
+      posts = stmtCache
+        .get(`SELECT p.id, p.userId, p.content, p.imageUrl,
+                   CASE WHEN instr(p.createdAt, 'T') THEN p.createdAt ELSE p.createdAt || 'Z' END AS createdAt,
+                   u.username, u.avatar, u.bio, u.gender, u.region, u.isOfficial,
+                   (SELECT COUNT(*) FROM comments WHERE postId = p.id) AS commentCount
+             FROM posts p
+             JOIN users u ON p.userId = u.id
+             WHERE u.active = 1 AND u.isOfficial = 1
+             ORDER BY p.createdAt DESC
+             LIMIT 50`)
+        .all() as any[]
+    } else if (tab === 'friends') {
+      // 好友动态：只显示好友的帖子（双向查询）
+      const friendIds = stmtCache
+        .get(`SELECT friendId AS id FROM friendships WHERE userId = ?
+              UNION
+              SELECT userId AS id FROM friendships WHERE friendId = ?`)
+        .all(userId, userId) as Array<{ id: number }>
+      if (friendIds.length === 0) {
+        posts = []
+      } else {
+        const placeholders = friendIds.map(() => '?').join(',')
+        posts = stmtCache
+          .get(`SELECT p.id, p.userId, p.content, p.imageUrl,
+                     CASE WHEN instr(p.createdAt, 'T') THEN p.createdAt ELSE p.createdAt || 'Z' END AS createdAt,
+                     u.username, u.avatar, u.bio, u.gender, u.region, u.isOfficial,
+                     (SELECT COUNT(*) FROM comments WHERE postId = p.id) AS commentCount
+               FROM posts p
+               JOIN users u ON p.userId = u.id
+               WHERE u.active = 1 AND p.userId IN (${placeholders})
+               ORDER BY p.createdAt DESC
+               LIMIT 50`)
+          .all(...friendIds.map(f => f.id)) as any[]
+      }
+    } else {
+      // 广场（全部，排除官方帖子）
+      posts = stmtCache
+        .get(`SELECT p.id, p.userId, p.content, p.imageUrl,
+                   CASE WHEN instr(p.createdAt, 'T') THEN p.createdAt ELSE p.createdAt || 'Z' END AS createdAt,
+                   u.username, u.avatar, u.bio, u.gender, u.region, u.isOfficial,
+                   (SELECT COUNT(*) FROM comments WHERE postId = p.id) AS commentCount
+             FROM posts p
+             JOIN users u ON p.userId = u.id
+             WHERE u.active = 1 AND (u.isOfficial IS NULL OR u.isOfficial = 0)
+             ORDER BY p.createdAt DESC
+             LIMIT 50`)
+        .all() as any[]
+    }
     res.json({ success: true, posts })
   } catch (error: any) {
     console.error('[posts]', error?.message || error)

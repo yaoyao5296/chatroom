@@ -4,6 +4,7 @@
 import { Router, type Request, type Response } from 'express'
 import db, { stmtCache } from '../db.js'
 import { authMiddleware } from '../middleware/auth.js'
+import { getIO } from '../socket.js'
 
 const router = Router()
 
@@ -123,9 +124,10 @@ router.post('/:id/members', authMiddleware, (req: Request, res: Response): void 
   try {
     const groupId = parseInt(req.params.id as string)
     const userId = (req as any).user.id
+    const inviterName = (req as any).user.username
     const { newMemberIds } = req.body
 
-    const group = stmtCache.get('SELECT id FROM groups WHERE id = ?').get(groupId) as any
+    const group = stmtCache.get('SELECT id, name FROM groups WHERE id = ?').get(groupId) as any
     if (!group) {
       res.status(404).json({ success: false, error: '群聊不存在' })
       return
@@ -135,30 +137,44 @@ router.post('/:id/members', authMiddleware, (req: Request, res: Response): void 
       .get('SELECT id FROM group_members WHERE groupId = ? AND userId = ?')
       .get(groupId, userId) as any
     if (!isMember) {
-      res.status(403).json({ success: false, error: '只有群成员可以添加好友' })
+      res.status(403).json({ success: false, error: '只有群成员可以邀请好友' })
       return
     }
 
     if (!Array.isArray(newMemberIds)) {
-      res.status(400).json({ success: false, error: '请选择要添加的成员' })
+      res.status(400).json({ success: false, error: '请选择要邀请的成员' })
       return
     }
 
-    const insertMember = stmtCache.get('INSERT OR IGNORE INTO group_members (groupId, userId, role) VALUES (?, ?, ?)')
-    let added = 0
+    const insertInvite = stmtCache.get(
+      'INSERT OR IGNORE INTO group_invitations (groupId, inviterId, inviteeId, status) VALUES (?, ?, ?, ?)'
+    )
+    let invited = 0
+    const io = getIO()
     for (const mid of newMemberIds as number[]) {
-      const r = insertMember.run(groupId, mid, 'member')
-      if (r.changes > 0) added++
+      // 检查是否已是群成员
+      const already = stmtCache
+        .get('SELECT id FROM group_members WHERE groupId = ? AND userId = ?')
+        .get(groupId, mid) as any
+      if (already) continue
+      const r = insertInvite.run(groupId, userId, mid, 'pending')
+      if (r.changes > 0) {
+        invited++
+        if (io) {
+          io.to(mid.toString()).emit('group_invitation', {
+            groupId,
+            groupName: group.name,
+            inviterId: userId,
+            inviterName,
+          })
+        }
+      }
     }
 
-    const memberCount = (stmtCache
-      .get('SELECT COUNT(*) AS count FROM group_members WHERE groupId = ?')
-      .get(groupId) as any).count
-
-    res.json({ success: true, added, memberCount })
+    res.json({ success: true, invited, message: `已向 ${invited} 位好友发送邀请` })
   } catch (error: any) {
-    console.error('[groups-addmembers]', error?.message || error)
-    res.status(500).json({ success: false, error: '添加成员失败' })
+    console.error('[groups-invite]', error?.message || error)
+    res.status(500).json({ success: false, error: '邀请失败' })
   }
 })
 
@@ -275,6 +291,70 @@ router.delete('/:id', authMiddleware, (req: Request, res: Response): void => {
   } catch (error: any) {
     console.error('[groups-delete]', error?.message || error)
     res.status(500).json({ success: false, error: '解散群聊失败' })
+  }
+})
+
+// ==================== 群聊邀请（必须在 /:id 之前） ====================
+
+// 获取当前用户的待处理群聊邀请
+router.get('/invitations/pending', authMiddleware, (req: Request, res: Response): void => {
+  try {
+    const userId = (req as any).user.id
+    const invitations = stmtCache
+      .get(`SELECT gi.id, gi.groupId, gi.inviterId, gi.status, gi.createdAt,
+                 g.name AS groupName,
+                 u.username AS inviterName, u.avatar AS inviterAvatar
+           FROM group_invitations gi
+           JOIN groups g ON gi.groupId = g.id
+           JOIN users u ON gi.inviterId = u.id
+           WHERE gi.inviteeId = ? AND gi.status = 'pending'
+           ORDER BY gi.createdAt DESC`)
+      .all(userId) as any[]
+    res.json({ success: true, invitations })
+  } catch (error: any) {
+    console.error('[groups-invitations]', error?.message || error)
+    res.status(500).json({ success: false, error: '服务器内部错误' })
+  }
+})
+
+// 接受/拒绝群聊邀请
+router.post('/invitations/:id/respond', authMiddleware, (req: Request, res: Response): void => {
+  try {
+    const userId = (req as any).user.id
+    const invitationId = parseInt(req.params.id as string)
+    const { action } = req.body
+
+    if (!['accept', 'decline'].includes(action)) {
+      res.status(400).json({ success: false, error: '参数错误' })
+      return
+    }
+
+    const invitation = stmtCache
+      .get('SELECT * FROM group_invitations WHERE id = ? AND inviteeId = ? AND status = ?')
+      .get(invitationId, userId, 'pending') as any
+    if (!invitation) {
+      res.status(404).json({ success: false, error: '邀请不存在或已处理' })
+      return
+    }
+
+    if (action === 'accept') {
+      const tx = db.transaction(() => {
+        stmtCache.get('UPDATE group_invitations SET status = ? WHERE id = ?').run('accepted', invitationId)
+        stmtCache.get('INSERT OR IGNORE INTO group_members (groupId, userId, role) VALUES (?, ?, ?)').run(invitation.groupId, userId, 'member')
+      })
+      tx()
+      const io = getIO()
+      if (io) {
+        io.to(userId.toString()).emit('group_created')
+      }
+      res.json({ success: true, message: '已加入群聊', groupId: invitation.groupId })
+    } else {
+      stmtCache.get('UPDATE group_invitations SET status = ? WHERE id = ?').run('declined', invitationId)
+      res.json({ success: true, message: '已拒绝邀请' })
+    }
+  } catch (error: any) {
+    console.error('[groups-invitation-respond]', error?.message || error)
+    res.status(500).json({ success: false, error: '处理失败' })
   }
 })
 

@@ -5,7 +5,8 @@ import { useChatStore } from '@/store/chatStore'
 import { useUnreadStore } from '@/store/unreadStore'
 import { api, resolveStaticUrl, type GroupInfo } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
-import { MessageCircle, LogOut, UserPlus, Search, Users, Camera, Trash2, X, Settings as SettingsIcon, Newspaper, Crown, Bell, Check, Bot, Plus } from 'lucide-react'
+import SafeImg from '@/components/SafeImg'
+import { MessageCircle, LogOut, UserPlus, Search, Users, Camera, Trash2, X, Settings as SettingsIcon, Newspaper, Crown, Bell, Check, Bot, Plus, Shield } from 'lucide-react'
 
 interface Friend {
   id: number
@@ -15,6 +16,7 @@ interface Friend {
   gender?: string
   region?: string
   active?: number
+  isOfficial?: number
 }
 
 export default function Friends() {
@@ -36,6 +38,7 @@ export default function Friends() {
   const [groupName, setGroupName] = useState('')
   const [selectedMembers, setSelectedMembers] = useState<number[]>([])
   const [creatingGroup, setCreatingGroup] = useState(false)
+  const [groupInvitations, setGroupInvitations] = useState<Array<{ id: number; groupId: number; inviterId: number; status: string; createdAt: string; groupName: string; inviterName: string; inviterAvatar: string }>>([])
 
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
@@ -84,6 +87,15 @@ export default function Friends() {
     }
   }, [])
 
+  const loadGroupInvitations = useCallback(async () => {
+    try {
+      const res = await api.getGroupInvitations()
+      setGroupInvitations(res.invitations)
+    } catch (err: any) {
+      console.error('加载群聊邀请失败:', err)
+    }
+  }, [])
+
   const checkVipStatus = useCallback(async () => {
     try {
       const res = await api.getVipStatus()
@@ -105,6 +117,7 @@ export default function Friends() {
     loadFriends()
     loadFriendRequests()
     loadGroups()
+    loadGroupInvitations()
     checkVipStatus()
     loadUnread()
   }, [loadFriends, loadFriendRequests, loadGroups, checkVipStatus, loadUnread])
@@ -119,12 +132,14 @@ export default function Friends() {
       loadFriendRequests()
     })
     socket.on('group_created', () => loadGroups())
+    socket.on('group_invitation', () => loadGroupInvitations())
     socket.on('unread_updated', () => loadUnread())
     return () => {
       socket.off('friend_added')
       socket.off('friend_request')
       socket.off('friend_request_responded')
       socket.off('group_created')
+      socket.off('group_invitation')
       socket.off('unread_updated')
     }
   }, [loadFriends, loadFriendRequests, loadGroups, loadUnread])
@@ -239,7 +254,7 @@ export default function Friends() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0F172A] flex">
+    <div className="h-screen bg-[#0F172A] flex overflow-hidden">
       {/* Sidebar */}
       <div className="w-80 bg-[#1E293B] flex flex-col border-r border-gray-800">
         {/* Header */}
@@ -250,17 +265,15 @@ export default function Friends() {
               onClick={() => setShowAvatarModal(true)}
             >
               <div className="relative">
-                {userAvatar ? (
-                  <img
-                    src={userAvatar}
-                    alt="avatar"
-                    className="w-10 h-10 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold">
-                    {user?.username?.[0]?.toUpperCase()}
-                  </div>
-                )}
+                <SafeImg
+                  src={userAvatar}
+                  fallback={
+                    <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold">
+                      {user?.username?.[0]?.toUpperCase()}
+                    </div>
+                  }
+                  className="w-10 h-10 rounded-full object-cover"
+                />
                 <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/40 flex items-center justify-center transition-colors">
                   <Camera className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
@@ -421,6 +434,57 @@ export default function Friends() {
               </div>
             )}
 
+            {/* 群聊邀请列表 */}
+            {groupInvitations.length > 0 && (
+              <div className="mb-3 bg-[#0F172A] rounded-xl border border-blue-500/20 overflow-hidden">
+                <div className="px-3 py-2 text-xs text-blue-400 font-medium border-b border-blue-500/10">
+                  群聊邀请 ({groupInvitations.length})
+                </div>
+                {groupInvitations.map((inv) => (
+                  <div key={inv.id} className="flex items-center gap-3 px-3 py-2.5 border-b border-gray-800 last:border-b-0">
+                    <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+                      {inv.inviterName[0]?.toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm truncate">
+                        <span className="text-blue-400">{inv.inviterName}</span>
+                        <span className="text-gray-400"> 邀请你加入 </span>
+                        <span className="text-blue-400">{inv.groupName}</span>
+                      </p>
+                      <p className="text-xs text-gray-500">群聊邀请</p>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={async () => {
+                          try {
+                            await api.respondGroupInvitation(inv.id, 'accept')
+                            loadGroupInvitations()
+                            loadGroups()
+                          } catch {}
+                        }}
+                        className="p-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                        title="同意"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await api.respondGroupInvitation(inv.id, 'decline')
+                            loadGroupInvitations()
+                          } catch {}
+                        }}
+                        className="p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                        title="拒绝"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {loading ? (
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
@@ -458,13 +522,15 @@ export default function Friends() {
                     }`}
                   >
                     <div className="relative">
-                      {friend.avatar ? (
-                        <img src={resolveStaticUrl(friend.avatar)} alt="" className="w-10 h-10 rounded-full object-cover" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center text-white font-semibold text-sm">
-                          {friend.username[0]?.toUpperCase()}
-                        </div>
-                      )}
+                      <SafeImg
+                        src={resolveStaticUrl(friend.avatar || '')}
+                        fallback={
+                          <div className="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center text-white font-semibold text-sm">
+                            {friend.username[0]?.toUpperCase()}
+                          </div>
+                        }
+                        className="w-10 h-10 rounded-full object-cover"
+                      />
                       {friend.active === 1 && onlineUsers.includes(friend.id) && (
                         <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-[#1E293B]" />
                       )}
@@ -479,6 +545,12 @@ export default function Friends() {
                         <>
                           <div className="flex items-center gap-2">
                             <p className="text-white text-sm font-medium truncate">{friend.username}</p>
+                            {friend.isOfficial === 1 && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-500/15 text-amber-400 rounded text-[10px] font-medium flex-shrink-0">
+                                <Shield className="w-2.5 h-2.5" />
+                                官方
+                              </span>
+                            )}
                             {friend.gender === 'male' && <span className="text-[10px] text-blue-400">♂</span>}
                             {friend.gender === 'female' && <span className="text-[10px] text-pink-400">♀</span>}
                             {friend.gender === 'other' && <span className="text-[10px] text-gray-400">⚧</span>}

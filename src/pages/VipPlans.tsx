@@ -77,7 +77,7 @@ export default function VipPlans() {
 
   if (step === 'paid') {
     return (
-      <div className="min-h-screen bg-[#0F172A] flex flex-col">
+      <div className="h-screen bg-[#0F172A] flex flex-col overflow-hidden">
         <header className="bg-[#1E293B] border-b border-gray-800 px-4 py-3 flex items-center gap-3">
           <button onClick={() => navigate('/friends')} className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors">
             <ArrowLeft className="w-5 h-5" />
@@ -110,7 +110,7 @@ export default function VipPlans() {
 
   if (step === 'pay') {
     return (
-      <div className="min-h-screen bg-[#0F172A] flex flex-col">
+      <div className="h-screen bg-[#0F172A] flex flex-col overflow-hidden">
         <header className="bg-[#1E293B] border-b border-gray-800 px-4 py-3 flex items-center gap-3">
           <button onClick={() => setStep('plans')} className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors">
             <ArrowLeft className="w-5 h-5" />
@@ -151,7 +151,7 @@ export default function VipPlans() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0F172A] flex flex-col">
+    <div className="h-screen bg-[#0F172A] flex flex-col overflow-hidden">
       {/* Header */}
       <header className="bg-[#1E293B] border-b border-gray-800 px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
         <button

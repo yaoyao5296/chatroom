@@ -6,6 +6,7 @@ import { useChatStore } from "@/store/chatStore"
 import { useUnreadStore } from "@/store/unreadStore"
 import type { Message, GroupMessage } from "@/lib/api"
 import { requestNotificationPermission, showNotification } from "@/lib/notification"
+import { disconnectSocket } from "@/lib/socket"
 import Login from "@/pages/Login"
 import Register from "@/pages/Register"
 import Friends from "@/pages/Friends"
@@ -95,32 +96,33 @@ function SocketListener() {
         detail: { message: '无法连接到服务器，请检查网络或服务器地址' },
       }))
     }
-    socket.io.on('connect_error', handleConnectError)
+    ;(socket.io as any).on('connect_error', handleConnectError)
 
     // 重连成功后：静默拉取
     const handleReconnect = () => {
       loadUnread()
     }
-    socket.io.on('reconnect', handleReconnect)
+    ;(socket.io as any).on('reconnect', handleReconnect)
 
     return () => {
       socket.off('new_message', handleNewMessage)
       socket.off('new_group_message', handleNewGroupMessage)
       socket.off('online_users', handleOnlineUsers)
       socket.off('unread_updated', handleUnreadUpdated)
-      socket.io.off('connect_error', handleConnectError)
-      socket.io.off('reconnect', handleReconnect)
+      ;(socket.io as any).off('connect_error', handleConnectError)
+      ;(socket.io as any).off('reconnect', handleReconnect)
     }
   }, [addMessage, addGroupMessage, setOnlineUsers, user, incrementUnread, loadUnread, location.pathname, navigate])
 
   return null
 }
 
-/** 全局"无法连接到服务器"提示条 */
+/** 全局"无法连接到服务器"提示条 + 登录过期处理 */
 function ServerOfflineBanner() {
   const [visible, setVisible] = useState(false)
   const [message, setMessage] = useState('无法连接到服务器，请检查网络或服务器地址')
   const navigate = useNavigate()
+  const logout = useAuthStore((s) => s.logout)
 
   useEffect(() => {
     // 节流：5 秒内只提示一次，避免大量请求反复弹
@@ -132,11 +134,20 @@ function ServerOfflineBanner() {
       const detail = (e as CustomEvent).detail
       if (detail?.message) setMessage(detail.message)
       setVisible(true)
-      // 5 秒后自动隐藏，或者用户点击"回到首页"立即隐藏并跳转
     }
     window.addEventListener('server-offline', onOffline)
     return () => window.removeEventListener('server-offline', onOffline)
   }, [])
+
+  // 登录过期：清除状态并跳转登录页
+  useEffect(() => {
+    const onAuthExpired = () => {
+      logout()
+      navigate('/', { replace: true })
+    }
+    window.addEventListener('auth-expired', onAuthExpired)
+    return () => window.removeEventListener('auth-expired', onAuthExpired)
+  }, [logout, navigate])
 
   // 浏览器真正的 offline/online 事件
   useEffect(() => {

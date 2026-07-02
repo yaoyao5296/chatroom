@@ -12,10 +12,9 @@ import { Router, type Request, type Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import db, { stmtCache } from '../db.js'
-import { authMiddleware } from '../middleware/auth.js'
+import { authMiddleware, JWT_SECRET } from '../middleware/auth.js'
 
 const router = Router()
-const JWT_SECRET = process.env.JWT_SECRET || 'chat-secret-key-2024'
 const JWT_EXPIRES = '7d'
 const BCRYPT_COST = 8 // 单核下 cost 10 ~180ms，cost 8 ~50ms，对普通用户足够安全
 
@@ -63,8 +62,12 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     const deactivated = stmtCache.get('SELECT id FROM users WHERE username = ? AND active = 0').get(username) as any
     if (deactivated) {
       const tx = db.transaction((oldId: number) => {
+        stmtCache.get('DELETE FROM comments WHERE userId = ?').run(oldId)
+        stmtCache.get('DELETE FROM posts WHERE userId = ?').run(oldId)
         stmtCache.get('DELETE FROM friendships WHERE userId = ? OR friendId = ?').run(oldId, oldId)
         stmtCache.get('DELETE FROM messages WHERE senderId = ? OR receiverId = ?').run(oldId, oldId)
+        stmtCache.get('DELETE FROM group_members WHERE userId = ?').run(oldId)
+        stmtCache.get('DELETE FROM group_invitations WHERE inviterId = ? OR inviteeId = ?').run(oldId, oldId)
         stmtCache.get('DELETE FROM users WHERE id = ?').run(oldId)
       })
       tx(deactivated.id)
@@ -100,7 +103,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     }
 
     const user = stmtCache
-      .get(`SELECT id, username, password, avatar, bio, gender, region, vip, vipExpiresAt
+      .get(`SELECT id, username, password, avatar, bio, gender, region, vip, vipExpiresAt, isOfficial
            FROM users
            WHERE (username = ? OR phone = ? OR email = ?) AND active = 1`)
       .get(loginId, loginId, loginId) as any
@@ -133,6 +136,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         gender: user.gender || '',
         region: user.region || '',
         vip,
+        isOfficial: user.isOfficial || 0,
       },
       token,
     })
@@ -171,6 +175,15 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / d
 }
 
+/**
+ * 根据描述符维度自适应阈值
+ * - FaceNet 128 维嵌入：阈值 0.6（深度学习模型，精度高）
+ * - 传统 64 维灰度特征：阈值 0.85（手工特征，需更高阈值防误识）
+ */
+function getThreshold(descriptor: number[]): number {
+  return descriptor.length >= 100 ? 0.6 : 0.85
+}
+
 // 1) 为人脸注册或更新描述符（需要已登录）
 router.post('/face/register', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -205,7 +218,7 @@ router.post('/face/login', async (req: Request, res: Response): Promise<void> =>
       return
     }
 
-    const threshold = 0.85
+    const threshold = getThreshold(parsed)
     let matchedUser: any = null
     let bestScore = threshold
 
@@ -273,9 +286,171 @@ router.post('/face/login', async (req: Request, res: Response): Promise<void> =>
   }
 })
 
-// ==================== 修改密码 ====================
-// 需要：已登录 + 旧密码正确 + 新密码 >= 6 位
+// ==================== 修改密码（支持多因素验证） ====================
+// 验证方式：
+//  1. old_password - 旧密码验证
+//  2. email_code - 邮箱验证码（需先绑定邮箱）
+//  3. face - 人脸识别验证（需已注册人脸）
+interface VerificationCode {
+  code: string
+  email: string
+  expiresAt: number
+}
+const codeStore = new Map<string, VerificationCode>()
+
+function generateCode(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString()
+}
+
+// 发送邮箱验证码（用于修改密码）
+router.post('/password/send-code', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).user.id as number
+    const { email } = req.body
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({ success: false, error: '请输入有效的邮箱地址' })
+      return
+    }
+
+    // 检查邮箱是否已绑定到当前用户或需要更新邮箱
+    const user = stmtCache.get('SELECT id, email FROM users WHERE id = ?').get(userId) as any
+    if (!user) {
+      res.status(404).json({ success: false, error: '用户不存在' })
+      return
+    }
+
+    const code = generateCode()
+    const codeKey = `pwd_${userId}`
+    codeStore.set(codeKey, {
+      code,
+      email: email.trim(),
+      expiresAt: Date.now() + 5 * 60 * 1000, // 5分钟有效期
+    })
+
+    // 清理过期验证码
+    for (const [k, v] of codeStore.entries()) {
+      if (v.expiresAt < Date.now()) codeStore.delete(k)
+    }
+
+    console.log(`[password-code] 用户 ${userId} 邮箱 ${email} 验证码: ${code}`)
+    // 注意：实际生产环境需要真实邮件服务，这里返回验证码用于开发调试
+    res.json({
+      success: true,
+      sent: true,
+      message: `验证码已发送到 ${email}（开发环境直接显示: ${code}）`,
+      code,
+    })
+  } catch (error: any) {
+    console.error('[password-send-code]', error?.message || error)
+    res.status(500).json({ success: false, error: '服务器内部错误' })
+  }
+})
+
+// 修改密码（支持多种验证方式）
+router.post('/password/change', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).user.id as number
+    const { oldPassword, newPassword, verifyMethod, email, code, faceDescriptor } = req.body
+
+    if (!newPassword || newPassword.length < 6) {
+      res.status(400).json({ success: false, error: '新密码长度不能少于 6 个字符' })
+      return
+    }
+
+    const user = stmtCache.get('SELECT id, password, email, faceDescriptor FROM users WHERE id = ?').get(userId) as any
+    if (!user) {
+      res.status(404).json({ success: false, error: '用户不存在' })
+      return
+    }
+
+    let verified = false
+
+    switch (verifyMethod) {
+      case 'old_password': {
+        if (!oldPassword) {
+          res.status(400).json({ success: false, error: '请输入旧密码' })
+          return
+        }
+        const isMatch = await bcrypt.compare(oldPassword, user.password)
+        if (!isMatch) {
+          res.status(401).json({ success: false, error: '旧密码不正确' })
+          return
+        }
+        verified = true
+        break
+      }
+
+      case 'email_code': {
+        if (!email || !code) {
+          res.status(400).json({ success: false, error: '请提供邮箱和验证码' })
+          return
+        }
+        const codeKey = `pwd_${userId}`
+        const stored = codeStore.get(codeKey)
+        if (!stored || stored.expiresAt < Date.now()) {
+          codeStore.delete(codeKey)
+          res.status(400).json({ success: false, error: '验证码已过期，请重新获取' })
+          return
+        }
+        if (stored.email !== email.trim() || stored.code !== code.trim()) {
+          res.status(401).json({ success: false, error: '验证码不正确' })
+          return
+        }
+        // 验证成功，同时更新用户邮箱
+        if (email.trim() !== user.email) {
+          stmtCache.get('UPDATE users SET email = ? WHERE id = ?').run(email.trim(), userId)
+        }
+        codeStore.delete(codeKey)
+        verified = true
+        break
+      }
+
+      case 'face': {
+        const parsed = parseDescriptor(faceDescriptor)
+        if (!parsed) {
+          res.status(400).json({ success: false, error: '无效的人脸特征数据' })
+          return
+        }
+        const storedFace = parseDescriptor(user.faceDescriptor)
+        if (!storedFace) {
+          res.status(400).json({ success: false, error: '您尚未注册人脸信息，请使用其他验证方式' })
+          return
+        }
+        const score = cosineSimilarity(parsed, storedFace)
+        const faceThreshold = getThreshold(parsed)
+        if (score < faceThreshold) {
+          res.status(401).json({ success: false, error: '人脸验证失败，请重试' })
+          return
+        }
+        verified = true
+        break
+      }
+
+      default:
+        res.status(400).json({ success: false, error: '请选择验证方式' })
+        return
+    }
+
+    if (!verified) {
+      res.status(401).json({ success: false, error: '验证失败' })
+      return
+    }
+
+    const hashed = await bcrypt.hash(newPassword, BCRYPT_COST)
+    stmtCache.get('UPDATE users SET password = ? WHERE id = ?').run(hashed, userId)
+
+    res.json({ success: true, message: '密码修改成功，请使用新密码登录' })
+  } catch (error: any) {
+    console.error('[password-change]', error?.message || error)
+    res.status(500).json({ success: false, error: '服务器内部错误' })
+  }
+})
+
+// 旧接口兼容 - 保持向后兼容
 router.post('/password', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  req.body.verifyMethod = 'old_password'
+  // 直接调用密码修改逻辑
   try {
     const userId = (req as any).user.id as number
     const { oldPassword, newPassword } = req.body
@@ -287,22 +462,18 @@ router.post('/password', authMiddleware, async (req: Request, res: Response): Pr
       res.status(400).json({ success: false, error: '新密码长度不能少于 6 个字符' })
       return
     }
-
-    const user = stmtCache.get('SELECT password FROM users WHERE id = ?').get(userId) as any
+    const user = stmtCache.get('SELECT id, password FROM users WHERE id = ?').get(userId) as any
     if (!user) {
       res.status(404).json({ success: false, error: '用户不存在' })
       return
     }
-
     const isMatch = await bcrypt.compare(oldPassword, user.password)
     if (!isMatch) {
       res.status(401).json({ success: false, error: '旧密码不正确' })
       return
     }
-
     const hashed = await bcrypt.hash(newPassword, BCRYPT_COST)
     stmtCache.get('UPDATE users SET password = ? WHERE id = ?').run(hashed, userId)
-
     res.json({ success: true, message: '密码修改成功，请使用新密码登录' })
   } catch (error: any) {
     console.error('[password-update]', error?.message || error)

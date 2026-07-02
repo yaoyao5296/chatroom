@@ -41,6 +41,21 @@ async function start(): Promise<void> {
       ? `[redis] 已连接，在线状态将持久化到 Redis`
       : `[redis] 未启用，使用内存模式存储在线状态`
   )
+
+  // 启动时检查关键环境变量
+  const warnings: string[] = []
+  if (!process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY.trim() === '') {
+    warnings.push('⚠  DEEPSEEK_API_KEY 未设置：AI 聊天功能将不可用')
+  }
+  if (!process.env.JWT_SECRET) {
+    warnings.push('⚠  JWT_SECRET 未设置：将自动生成随机密钥（每次重启会变化，用户需重新登录）')
+  }
+  if (warnings.length > 0) {
+    console.log('[server] === 启动检查 ===')
+    warnings.forEach((w) => console.log(w))
+    console.log('[server] ==================')
+  }
+
   server.listen(PORT, () => {
     console.log(`[server] 就绪，端口: ${PORT}`)
     console.log(`[server] V8 heap 上限: ${process.resourceUsage ? '由 --max-old-space-size 控制' : 'default'}`)
@@ -72,9 +87,15 @@ function cleanupDeactivatedUsers(): void {
     const cleanup = db.transaction(() => {
       for (let i = 0; i < deactivatedUsers.length; i++) {
         const user = deactivatedUsers[i]
+        stmtCache.get('DELETE FROM comments WHERE userId = ?').run(user.id)
+        stmtCache.get('DELETE FROM posts WHERE userId = ?').run(user.id)
         stmtCache.get('DELETE FROM friend_requests WHERE senderId = ? OR receiverId = ?').run(user.id, user.id)
         stmtCache.get('DELETE FROM friendships WHERE userId = ? OR friendId = ?').run(user.id, user.id)
+        stmtCache.get('DELETE FROM group_messages WHERE senderId = ?').run(user.id)
+        stmtCache.get('DELETE FROM group_members WHERE userId = ?').run(user.id)
+        stmtCache.get('DELETE FROM group_invitations WHERE inviterId = ? OR inviteeId = ?').run(user.id, user.id)
         stmtCache.get('DELETE FROM messages WHERE senderId = ? OR receiverId = ?').run(user.id, user.id)
+        stmtCache.get('DELETE FROM unread_counts WHERE userId = ?').run(user.id)
         stmtCache.get('DELETE FROM users WHERE id = ?').run(user.id)
         console.log(`[清理账号] 已清除: ${user.username} (ID: ${user.id})`)
       }

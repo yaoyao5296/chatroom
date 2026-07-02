@@ -15,11 +15,11 @@ router.get('/', authMiddleware, (req: Request, res: Response): void => {
   try {
     const userId = (req as any).user.id
     const friends = stmtCache
-      .get(`SELECT u.id, u.username, u.avatar, u.bio, u.gender, u.region, u.active
+      .get(`SELECT u.id, u.username, u.avatar, u.bio, u.gender, u.region, u.age, u.active, u.isOfficial
            FROM friendships f
            JOIN users u ON (u.id = f.friendId AND f.userId = ?)
            UNION ALL
-           SELECT u.id, u.username, u.avatar, u.bio, u.gender, u.region, u.active
+           SELECT u.id, u.username, u.avatar, u.bio, u.gender, u.region, u.age, u.active, u.isOfficial
            FROM friendships f
            JOIN users u ON (u.id = f.userId AND f.friendId = ?)`)
       .all(userId, userId) as any[]

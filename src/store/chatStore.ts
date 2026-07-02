@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api, type Message, type GroupMessage } from '@/lib/api'
+import { useAuthStore } from '@/store/authStore'
 
 interface ChatState {
   messages: Record<number, Message[]>
@@ -37,7 +38,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   addMessage: (message) => {
     set((state) => {
-      const friendId = message.senderId === (JSON.parse(localStorage.getItem('user') || '{}').id)
+      const userId = useAuthStore.getState().user?.id
+      const friendId = message.senderId === userId
         ? message.receiverId
         : message.senderId
 

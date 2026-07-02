@@ -12,6 +12,7 @@ import { Server as SocketIOServer } from 'socket.io'
 import type { Server as HTTPServer } from 'http'
 import jwt from 'jsonwebtoken'
 import db, { stmtCache } from './db.js'
+import { JWT_SECRET } from './middleware/auth.js'
 import {
   markOnline,
   isInGracePeriod,
@@ -23,8 +24,6 @@ import {
   getActiveSession,
   startOnlineCleanup,
 } from './redis.js'
-
-const JWT_SECRET = process.env.JWT_SECRET || 'chat-secret-key-2024'
 
 // =============== 优化 1：反向索引（userId -> socketId[]） ===============
 const localSockets = new Map<string, { socket: any; userId: number; username: string }>()
@@ -298,7 +297,7 @@ export function initSocket(server: HTTPServer): SocketIOServer {
         }
 
         const sender = stmtCache
-          .get('SELECT username, avatar, bio, gender, region FROM users WHERE id = ?')
+          .get('SELECT username, avatar, bio, gender, region, age FROM users WHERE id = ?')
           .get(user.id) as any
 
         messageQueue.push({

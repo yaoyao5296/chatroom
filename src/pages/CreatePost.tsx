@@ -102,7 +102,7 @@ export default function CreatePost() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0F172A] flex flex-col">
+    <div className="h-screen bg-[#0F172A] flex flex-col overflow-hidden">
       {/* Header */}
       <header className="bg-[#1E293B] border-b border-gray-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">

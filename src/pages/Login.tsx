@@ -2,57 +2,17 @@ import { useState, useRef, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { api } from '@/lib/api'
+import { captureFaceDescriptor, supportsFaceDetector, getModelStatus, onModelStatusChange, type ModelStatus } from '@/lib/face'
 import { Camera, Eye, EyeOff, Shield, Loader2, ScanFace, KeyRound } from 'lucide-react'
 
 /**
  * 人脸登录：
  *  1) 使用 <video> + getUserMedia 打开摄像头
- *  2) 将画面打到 <canvas>，获取 imageData
- *  3) 抽取 64 维简化特征向量（在图片中心 60% 区域采样亮度 + 分块平均）
- *  4) 将向量传到后端，后端和已注册的 faceDescriptor 做余弦相似度比较
- *  5) 可选：用户输入用户名（已知），提高匹配精度 & 速度
+ *  2) 优先使用 FaceDetector API 精确定位人脸
+ *  3) 不可用时降级为传统中心裁剪
+ *  4) 提取 64 维归一化特征向量
+ *  5) 后端余弦相似度匹配（阈值 0.85）
  */
-
-// 从 canvas 的 imageData 抽取一个 8x8=64 维描述符（中心 60% 区域）
-function extractDescriptorFromCanvas(canvas: HTMLCanvasElement): number[] {
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return []
-  const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
-  const data = img.data
-
-  // 中心裁剪 60%
-  const sx = Math.floor(canvas.width * 0.2)
-  const sy = Math.floor(canvas.height * 0.2)
-  const sw = canvas.width - 2 * sx
-  const sh = canvas.height - 2 * sy
-
-  const blockW = Math.max(1, Math.floor(sw / 8))
-  const blockH = Math.max(1, Math.floor(sh / 8))
-
-  const feats: number[] = []
-  for (let by = 0; by < 8; by++) {
-    for (let bx = 0; bx < 8; bx++) {
-      let sum = 0
-      let count = 0
-      for (let y = by * blockH; y < (by + 1) * blockH; y++) {
-        for (let x = bx * blockW; x < (bx + 1) * blockW; x++) {
-          const idx = ((sy + y) * canvas.width + (sx + x)) * 4
-          // 灰度 = 0.299*R + 0.587*G + 0.114*B
-          sum += 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]
-          count++
-        }
-      }
-      feats.push(count ? sum / count / 255 : 0)
-    }
-  }
-
-  // 归一化
-  let norm = 0
-  for (let i = 0; i < feats.length; i++) norm += feats[i] * feats[i]
-  norm = Math.sqrt(norm) || 1
-  for (let i = 0; i < feats.length; i++) feats[i] = Math.round((feats[i] / norm) * 10000) / 10000
-  return feats
-}
 
 export default function Login() {
   const [loginId, setLoginId] = useState('')
@@ -63,6 +23,12 @@ export default function Login() {
   const [faceMode, setFaceMode] = useState(false)
   const [cameraReady, setCameraReady] = useState(false)
   const [faceLoading, setFaceLoading] = useState(false)
+  const [modelStatus, setModelStatus] = useState<ModelStatus>(getModelStatus())
+
+  useEffect(() => {
+    setModelStatus(getModelStatus())
+    return onModelStatusChange(setModelStatus)
+  }, [])
   const [faceError, setFaceError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -82,9 +48,14 @@ export default function Login() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const mountedRef = useRef(true)
 
   useEffect(() => {
-    return () => stopCamera()
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      stopCamera()
+    }
   }, [])
 
   async function startCamera() {
@@ -136,31 +107,25 @@ export default function Login() {
     setFaceError('')
     setSuccess('')
     try {
-      const video = videoRef.current
-      const canvas = canvasRef.current
-      canvas.width = 128
-      canvas.height = 128
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return
-      // 镜像翻转，让用户感觉自然
-      ctx.translate(canvas.width, 0)
-      ctx.scale(-1, 1)
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-      const descriptor = extractDescriptorFromCanvas(canvas)
+      const { descriptor, precise } = await captureFaceDescriptor(videoRef.current, canvasRef.current)
+      if (!mountedRef.current) return
       if (!descriptor || descriptor.length < 4) {
         setFaceError('未能采集人脸特征，请调整光线后重试')
         return
       }
 
       const res = await api.loginWithFace(descriptor, loginId.trim() || undefined)
+      if (!mountedRef.current) return
       if (res.success) {
         localStorage.setItem('token', res.token)
         localStorage.setItem('user', JSON.stringify(res.user))
         useAuthStore.setState({ user: res.user, token: res.token, isLoggedIn: true })
-        setSuccess(`识别成功 (score=${res.score})，正在进入聊天...`)
+        const mode = precise ? '精准模式' : '兼容模式'
+        setSuccess(`识别成功 (${mode} score=${res.score})，正在进入聊天...`)
         stopCamera()
-        setTimeout(() => navigate('/friends'), 600)
+        setTimeout(() => {
+          if (mountedRef.current) navigate('/friends')
+        }, 600)
       }
     } catch (err: any) {
       setFaceError(err.message || '识别失败，请重试或用密码登录')
@@ -234,8 +199,8 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0F172A] flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div className="h-screen bg-[#0F172A] flex items-start justify-center p-4 overflow-y-auto">
+      <div className="w-full max-w-md py-8">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-500/10 mb-4">
             <Shield className="w-8 h-8 text-blue-400" />
@@ -335,6 +300,19 @@ export default function Login() {
               )}
               {success && (
                 <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-sm rounded-lg p-3">{success}</div>
+              )}
+
+              {/* 模型加载状态 */}
+              {modelStatus === 'loading' && (
+                <div className="bg-blue-500/10 border border-blue-500/20 text-blue-300 text-sm rounded-lg p-3 flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>正在加载人脸识别模型（约 6.2MB），请稍候...</span>
+                </div>
+              )}
+              {modelStatus === 'error' && (
+                <div className="bg-amber-500/10 border border-amber-500/20 text-amber-300 text-sm rounded-lg p-3">
+                  人脸识别模型加载失败，将使用兼容模式（精度较低）
+                </div>
               )}
 
               <div className="relative aspect-square w-full bg-black rounded-xl overflow-hidden border border-gray-700 flex items-center justify-center">

@@ -14,6 +14,7 @@ interface User {
   vip?: number
   vipExpiresAt?: string
   faceDescriptor?: string
+  isOfficial?: number
 }
 
 interface AuthState {

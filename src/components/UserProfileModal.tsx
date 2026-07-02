@@ -6,6 +6,7 @@
 import { useState } from 'react'
 import { X, MapPin, UserPlus, Check, Loader2, Shield } from 'lucide-react'
 import { resolveStaticUrl } from '@/lib/api'
+import SafeImg from '@/components/SafeImg'
 
 interface UserProfileModalProps {
   /** 要展示的用户资料（来自动态/好友数据） */
@@ -16,6 +17,7 @@ interface UserProfileModalProps {
     bio?: string
     gender?: string
     region?: string
+    age?: number
   }
   /** 当前登录用户 ID（用于判断是否是自己） */
   currentUserId: number
@@ -82,17 +84,15 @@ export default function UserProfileModal({
             <X className="w-5 h-5" />
           </button>
           <div className="absolute -bottom-10 left-1/2 -translate-x-1/2">
-            {user.avatar ? (
-              <img
-                src={resolveStaticUrl(user.avatar || '')}
-                alt=""
-                className="w-20 h-20 rounded-full object-cover border-4 border-[#1E293B] shadow-lg"
-              />
-            ) : (
-              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-400 to-cyan-400 flex items-center justify-center text-white text-2xl font-bold border-4 border-[#1E293B] shadow-lg">
-                {initial}
-              </div>
-            )}
+            <SafeImg
+              src={resolveStaticUrl(user.avatar || '')}
+              fallback={
+                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-400 to-cyan-400 flex items-center justify-center text-white text-2xl font-bold border-4 border-[#1E293B] shadow-lg">
+                  {initial}
+                </div>
+              }
+              className="w-20 h-20 rounded-full object-cover border-4 border-[#1E293B] shadow-lg"
+            />
           </div>
         </div>
 
@@ -120,6 +120,14 @@ export default function UserProfileModal({
             <div className="flex items-center gap-2 text-sm">
               <span className={`${genderCfg.color} font-medium`}>{genderCfg.emoji}</span>
               <span className="text-gray-400">{genderCfg.label}</span>
+            </div>
+          )}
+
+          {/* 年龄 */}
+          {user.age != null && user.age > 0 && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-gray-500 text-sm">🎂</span>
+              <span className="text-gray-400">{user.age} 岁</span>
             </div>
           )}
 

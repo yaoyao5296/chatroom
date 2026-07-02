@@ -7,12 +7,14 @@ import { api, resolveStaticUrl, type Message, type GroupMessage, type GroupInfo 
 import { getSocket } from '@/lib/socket'
 import { MediaPreview } from '@/components/MediaPreview'
 import UserProfileModal from '@/components/UserProfileModal'
-import { ArrowLeft, Send, Paperclip, Image, FileText, Ban, X, UserPlus, Users, Edit2, LogOut, Crown, VideoIcon } from 'lucide-react'
+import SafeImg from '@/components/SafeImg'
+import { ArrowLeft, Send, Paperclip, Image, FileText, Ban, X, UserPlus, Users, Edit2, LogOut, Crown, VideoIcon, Shield } from 'lucide-react'
 
 export default function Chat() {
   const { friendId, groupId } = useParams<{ friendId: string; groupId: string }>()
   const navigate = useNavigate()
-  const [friend, setFriend] = useState<{ id: number; username: string; avatar?: string; active?: number } | null>(null)
+  const [friend, setFriend] = useState<{ id: number; username: string; avatar?: string; active?: number; isOfficial?: number; bio?: string; gender?: string; region?: string } | null>(null)
+  const [showFriendInfo, setShowFriendInfo] = useState(false)
   const [text, setText] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
@@ -170,6 +172,15 @@ export default function Chat() {
       socket.off('typing_status', handleTypingStatus)
     }
   }, [addMessage, addGroupMessage, setTypingUser])
+
+  // 组件卸载时清理 typing 定时器
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // 自动滚动到最新消息
   useEffect(() => {
@@ -381,16 +392,16 @@ export default function Chat() {
     window.open(`/api/download/${messageId}?token=${token}`, '_blank')
   }
 
-  // 格式化时间（24小时制）
+  // 格式化时间（24小时制，强制本地时间）
   const formatTime = (timestamp: string) => {
+    if (!timestamp) return ''
     const date = new Date(timestamp)
+    if (isNaN(date.getTime())) return ''
     const now = new Date()
     const isToday = date.toDateString() === now.toDateString()
     const h = date.getHours().toString().padStart(2, '0')
     const m = date.getMinutes().toString().padStart(2, '0')
-    if (isToday) {
-      return `${h}:${m}`
-    }
+    if (isToday) return `${h}:${m}`
     const month = (date.getMonth() + 1).toString().padStart(2, '0')
     const day = date.getDate().toString().padStart(2, '0')
     return `${month}-${day} ${h}:${m}`
@@ -413,12 +424,16 @@ export default function Chat() {
             <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-semibold">
               {groupInfo?.name?.[0]?.toUpperCase() || 'G'}
             </div>
-          ) : friend?.avatar ? (
-            <img src={resolveStaticUrl(friend.avatar)} alt="" className="w-10 h-10 rounded-full object-cover" />
           ) : (
-            <div className="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center text-white font-semibold">
-              {friend?.username?.[0]?.toUpperCase() || '?'}
-            </div>
+            <SafeImg
+              src={resolveStaticUrl(friend?.avatar || '')}
+              fallback={
+                <div className="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center text-white font-semibold">
+                  {friend?.username?.[0]?.toUpperCase() || '?'}
+                </div>
+              }
+              className="w-10 h-10 rounded-full object-cover"
+            />
           )}
         </div>
         <div className="flex-1">
@@ -429,7 +444,15 @@ export default function Chat() {
             </>
           ) : (
             <>
-              <h2 className="text-white font-semibold">{friend?.username || '加载中...'}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-white font-semibold">{friend?.username || '加载中...'}</h2>
+                {friend?.isOfficial === 1 && (
+                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-500/15 text-amber-400 rounded text-[10px] font-medium">
+                    <Shield className="w-2.5 h-2.5" />
+                    官方
+                  </span>
+                )}
+              </div>
               {friend?.active === 0 ? (
                 <p className="text-xs text-red-400/80">已注销 · 不可聊天</p>
               ) : (
@@ -440,6 +463,19 @@ export default function Chat() {
             </>
           )}
         </div>
+        {!isGroupMode && !isAiMode && friend && friend.id !== user?.id && (
+          <button
+            onClick={() => setShowFriendInfo(true)}
+            className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+            title="查看资料"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <circle cx="12" cy="5" r="1.5" />
+              <circle cx="12" cy="12" r="1.5" />
+              <circle cx="12" cy="19" r="1.5" />
+            </svg>
+          </button>
+        )}
         {isGroupMode && (
           <div className="flex items-center gap-1">
             {groupInfo?.ownerId === user?.id && (
@@ -462,7 +498,7 @@ export default function Chat() {
                 })
               }}
               className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
-              title="添加成员"
+              title="邀请好友"
             >
               <UserPlus className="w-5 h-5" />
             </button>
@@ -739,12 +775,12 @@ export default function Chat() {
         )}
       </div>
 
-      {/* 添加成员模态框 */}
+      {/* 邀请好友模态框 */}
       {showAddMemberModal && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-[#1E293B] rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-gray-700">
-              <h3 className="text-white font-semibold text-lg">添加群成员</h3>
+              <h3 className="text-white font-semibold text-lg">邀请好友加入群聊</h3>
               <button
                 onClick={() => {
                   setShowAddMemberModal(false)
@@ -759,7 +795,7 @@ export default function Chat() {
               {friends.length === 0 ? (
                 <div className="text-center py-8">
                   <Users className="w-12 h-12 text-gray-600 mx-auto mb-2" />
-                  <p className="text-gray-400 text-sm">没有可添加的好友</p>
+                  <p className="text-gray-400 text-sm">没有可邀请的好友</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -785,11 +821,11 @@ export default function Chat() {
                         className="w-4 h-4 rounded border-gray-600 text-blue-600 focus:ring-blue-500 bg-gray-700"
                       />
                       <div className="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center text-white font-semibold">
-                        {friend.avatar ? (
-                          <img src={resolveStaticUrl(friend.avatar)} alt="" className="w-full h-full rounded-full object-cover" />
-                        ) : (
-                          friend.username[0]?.toUpperCase() || '?'
-                        )}
+                        <SafeImg
+                          src={resolveStaticUrl(friend.avatar || '')}
+                          fallback={<>{friend.username[0]?.toUpperCase() || '?'}</>}
+                          className="w-full h-full rounded-full object-cover"
+                        />
                       </div>
                       <span className="text-white text-sm">{friend.username}</span>
                     </label>
@@ -798,6 +834,7 @@ export default function Chat() {
               )}
             </div>
             <div className="p-4 border-t border-gray-700">
+              <p className="text-xs text-gray-500 mb-3">好友将收到邀请通知，需要同意后才能加入群聊</p>
               <button
                 onClick={async () => {
                   if (selectedFriends.length === 0) return
@@ -805,17 +842,15 @@ export default function Chat() {
                     await api.addGroupMembers(Number(groupId), selectedFriends)
                     setShowAddMemberModal(false)
                     setSelectedFriends([])
-                    // 刷新群成员列表
-                    const res = await api.getGroupMembers(Number(groupId))
-                    setGroupMembers(res.members)
+                    alert('邀请已发送，等待好友同意')
                   } catch (err) {
-                    console.error('添加成员失败:', err)
+                    console.error('邀请失败:', err)
                   }
                 }}
                 disabled={selectedFriends.length === 0}
                 className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-xl transition-colors font-medium"
               >
-                添加 {selectedFriends.length > 0 ? `(${selectedFriends.length})` : ''}
+                发送邀请 {selectedFriends.length > 0 ? `(${selectedFriends.length})` : ''}
               </button>
             </div>
           </div>
@@ -986,13 +1021,15 @@ export default function Chat() {
                     }}
                   >
                     <div className="relative">
-                      {member.avatar ? (
-                        <img src={resolveStaticUrl(member.avatar)} alt="" className="w-10 h-10 rounded-full object-cover" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-semibold">
-                          {member.username[0]?.toUpperCase() || '?'}
-                        </div>
-                      )}
+                      <SafeImg
+                        src={resolveStaticUrl(member.avatar || '')}
+                        fallback={
+                          <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-semibold">
+                            {member.username[0]?.toUpperCase() || '?'}
+                          </div>
+                        }
+                        className="w-10 h-10 rounded-full object-cover"
+                      />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -1053,6 +1090,24 @@ export default function Chat() {
             } catch {}
             return res
           }}
+        />
+      )}
+
+      {/* 好友资料弹窗（私聊 header 三点菜单） */}
+      {showFriendInfo && friend && (
+        <UserProfileModal
+          user={{
+            id: friend.id,
+            username: friend.username,
+            avatar: friend.avatar,
+            bio: friend.bio,
+            gender: friend.gender,
+            region: friend.region,
+          }}
+          currentUserId={user?.id || 0}
+          isFriend={true}
+          onClose={() => setShowFriendInfo(false)}
+          onAddFriend={async () => ({ success: true })}
         />
       )}
     </div>

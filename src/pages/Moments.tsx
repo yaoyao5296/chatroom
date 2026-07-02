@@ -4,8 +4,9 @@ import { useAuthStore } from '@/store/authStore'
 import { useMomentsStore } from '@/store/momentsStore'
 import { api, resolveStaticUrl, type Post, type Comment } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
-import { ArrowLeft, MessageCircle, Send, ImageIcon, Trash2, X, VideoIcon } from 'lucide-react'
+import { ArrowLeft, MessageCircle, Send, ImageIcon, Trash2, X, VideoIcon, Shield, Users, Globe } from 'lucide-react'
 import UserProfileModal from '@/components/UserProfileModal'
+import SafeImg from '@/components/SafeImg'
 
 type AuthorUser = {
   userId: number
@@ -15,6 +16,8 @@ type AuthorUser = {
   gender?: string
   region?: string
 }
+
+type TabType = 'official' | 'friends' | 'square'
 
 function PostCard({ post, onComment, onDelete, onEnlarge, onAvatarClick }: { post: Post; onComment: () => void; onDelete: (id: number) => void; onEnlarge: (url: string) => void; onAvatarClick: (author: AuthorUser) => void }) {
   const user = useAuthStore((s) => s.user)
@@ -54,7 +57,9 @@ function PostCard({ post, onComment, onDelete, onEnlarge, onAvatarClick }: { pos
   }
 
   const formatTime = (t: string) => {
+    if (!t) return ''
     const d = new Date(t)
+    if (isNaN(d.getTime())) return ''
     const now = new Date()
     const isToday = d.toDateString() === now.toDateString()
     const h = d.getHours().toString().padStart(2, '0')
@@ -96,17 +101,25 @@ function PostCard({ post, onComment, onDelete, onEnlarge, onAvatarClick }: { pos
       {/* 作者信息 */}
       <div className="px-5 pb-3 flex items-start gap-2">
         <button onClick={() => onAvatarClick({ userId: post.userId, username: post.username, avatar: post.avatar, bio: post.bio, gender: post.gender, region: post.region })} className="flex-shrink-0">
-          {post.avatar ? (
-            <img src={resolveStaticUrl(post.avatar)} alt="" className="w-6 h-6 rounded-full object-cover mt-0.5" />
-          ) : (
-            <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-semibold mt-0.5">
-              {post.username[0]?.toUpperCase()}
-            </div>
-          )}
+          <SafeImg
+            src={resolveStaticUrl(post.avatar || '')}
+            fallback={
+              <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-semibold mt-0.5">
+                {post.username[0]?.toUpperCase()}
+              </div>
+            }
+            className="w-6 h-6 rounded-full object-cover mt-0.5"
+          />
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 text-xs">
             <span className="text-blue-400 font-medium">{post.username}</span>
+            {post.isOfficial === 1 && (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-500/15 text-amber-400 rounded text-[10px] font-medium">
+                <Shield className="w-2.5 h-2.5" />
+                官方
+              </span>
+            )}
             {post.gender === 'male' && <span className="text-[10px] text-blue-400">♂</span>}
             {post.gender === 'female' && <span className="text-[10px] text-pink-400">♀</span>}
             {post.gender === 'other' && <span className="text-[10px] text-gray-400">⚧</span>}
@@ -157,13 +170,15 @@ function PostCard({ post, onComment, onDelete, onEnlarge, onAvatarClick }: { pos
                 comments.map((c) => (
                   <div key={c.id} className="flex gap-2.5">
                     <button onClick={() => onAvatarClick({ userId: c.userId, username: c.username, avatar: c.avatar, bio: c.bio, gender: c.gender, region: c.region })} className="flex-shrink-0">
-                      {c.avatar ? (
-                        <img src={resolveStaticUrl(c.avatar)} alt="" className="w-7 h-7 rounded-full object-cover mt-0.5" />
-                      ) : (
-                        <div className="w-7 h-7 rounded-full bg-gray-600 flex items-center justify-center text-white text-xs font-semibold mt-0.5">
-                          {c.username[0]?.toUpperCase()}
-                        </div>
-                      )}
+                      <SafeImg
+                        src={resolveStaticUrl(c.avatar || '')}
+                        fallback={
+                          <div className="w-7 h-7 rounded-full bg-gray-600 flex items-center justify-center text-white text-xs font-semibold mt-0.5">
+                            {c.username[0]?.toUpperCase()}
+                          </div>
+                        }
+                        className="w-7 h-7 rounded-full object-cover mt-0.5"
+                      />
                     </button>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-baseline gap-1.5 flex-wrap">
@@ -224,10 +239,12 @@ export default function Moments() {
   const [enlargedImage, setEnlargedImage] = useState('')
   const [selectedProfileUser, setSelectedProfileUser] = useState<AuthorUser | null>(null)
   const [friends, setFriends] = useState<Array<{ id: number }>>([])
+  const [activeTab, setActiveTab] = useState<TabType>('square')
 
-  const loadPosts = useCallback(async () => {
+  const loadPosts = useCallback(async (tab?: string) => {
+    setLoading(true)
     try {
-      const res = await api.getPosts()
+      const res = await api.getPosts(tab)
       setPosts(res.posts)
     } catch {} finally {
       setLoading(false)
@@ -235,9 +252,9 @@ export default function Moments() {
   }, [setPosts])
 
   useEffect(() => {
-    loadPosts()
+    loadPosts(activeTab)
     api.getFriends().then((res) => setFriends(res.friends)).catch(() => {})
-  }, [loadPosts])
+  }, [loadPosts, activeTab])
 
   // Socket 实时监听
   useEffect(() => {
@@ -285,7 +302,6 @@ export default function Moments() {
 
   const handleAddFriend = async (userId: number, username: string) => {
     const res = await api.sendFriendRequest(username)
-    // 添加成功后刷新好友列表，isFriend 判断会自动更新
     try {
       const fr = await api.getFriends()
       setFriends(fr.friends)
@@ -293,8 +309,14 @@ export default function Moments() {
     return res
   }
 
+  const tabs: Array<{ key: TabType; label: string; icon: typeof Shield }> = [
+    { key: 'official', label: '官方', icon: Shield },
+    { key: 'friends', label: '好友', icon: Users },
+    { key: 'square', label: '广场', icon: Globe },
+  ]
+
   return (
-    <div className="min-h-screen bg-[#0F172A] flex flex-col">
+    <div className="h-screen bg-[#0F172A] flex flex-col overflow-hidden">
       {/* Header */}
       <header className="bg-[#1E293B] border-b border-gray-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -304,15 +326,41 @@ export default function Moments() {
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <h1 className="text-white font-semibold text-lg">动态广场</h1>
+          <h1 className="text-white font-semibold text-lg">动态</h1>
         </div>
-        <button
-          onClick={() => navigate('/moments/create')}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
-        >
-          发布动态
-        </button>
+        {(activeTab === 'square') && (
+          <button
+            onClick={() => navigate('/moments/create')}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
+          >
+            发布动态
+          </button>
+        )}
       </header>
+
+      {/* 分栏标签 */}
+      <div className="bg-[#1E293B] border-b border-gray-800 px-4 py-2">
+        <div className="flex gap-1">
+          {tabs.map((tab) => {
+            const Icon = tab.icon
+            const isActive = activeTab === tab.key
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
 
       {/* Posts */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
@@ -326,16 +374,26 @@ export default function Moments() {
             ))}
           </div>
         ) : posts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
+          <div className="flex flex-col items-center justify-center h-full text-center pt-20">
             <MessageCircle className="w-16 h-16 text-gray-600 mb-4" />
-            <p className="text-gray-400 text-lg mb-2">还没有动态</p>
-            <p className="text-gray-500 text-sm mb-6">点击右上角发布第一条动态</p>
-            <button
-              onClick={() => navigate('/moments/create')}
-              className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-            >
-              发布动态
-            </button>
+            <p className="text-gray-400 text-lg mb-2">
+              {activeTab === 'official' ? '暂无官方动态' : activeTab === 'friends' ? '好友还没有发布动态' : '还没有动态'}
+            </p>
+            <p className="text-gray-500 text-sm mb-6">
+              {activeTab === 'official' && user?.isOfficial !== 1
+                ? '仅官方账号可在此发布动态'
+                : activeTab === 'friends'
+                ? '好友动态将自动同步好友的帖子'
+                : '去广场发布第一条动态'}
+            </p>
+            {(activeTab === 'square') && (
+              <button
+                onClick={() => navigate('/moments/create')}
+                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              >
+                发布动态
+              </button>
+            )}
           </div>
         ) : (
           posts.map((post) => (

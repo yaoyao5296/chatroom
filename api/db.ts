@@ -157,6 +157,16 @@ db.exec(`
     lastTimestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(userId, targetType, targetId)
   );
+
+  CREATE TABLE IF NOT EXISTS group_invitations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    groupId INTEGER NOT NULL,
+    inviterId INTEGER NOT NULL,
+    inviteeId INTEGER NOT NULL,
+    status TEXT DEFAULT 'pending',
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(groupId, inviteeId, status)
+  );
 `)
 
 // ==================== 核心索引 & 覆盖索引（查询零回表）====================
@@ -189,6 +199,9 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_group_messages_group_ts ON group_message
 db.exec(`CREATE INDEX IF NOT EXISTS idx_unread_user ON unread_counts(userId);`)
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_unread_user_target ON unread_counts(userId, targetType, targetId);`)
 
+// 群聊邀请：按被邀请人查询 pending 状态
+db.exec(`CREATE INDEX IF NOT EXISTS idx_group_invitations_invitee ON group_invitations(inviteeId, status);`)
+
 // 用户名查找：UNIQUE 已有隐式索引，不需要额外建
 
 // ==================== 兼容旧表结构 ====================
@@ -200,9 +213,28 @@ try { db.exec(`ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''`) } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN gender TEXT DEFAULT ''`) } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN region TEXT DEFAULT ''`) } catch {}
 try { db.exec(`ALTER TABLE users ADD COLUMN faceDescriptor TEXT DEFAULT ''`) } catch {}
+try { db.exec(`ALTER TABLE users ADD COLUMN isOfficial INTEGER DEFAULT 0`) } catch {}
+try { db.exec(`ALTER TABLE users ADD COLUMN age INTEGER DEFAULT 0`) } catch {}
 
 // 修复：确保所有现有用户的 active 不为 NULL（兼容旧数据库升级）
 db.exec(`UPDATE users SET active = 1 WHERE active IS NULL`)
+
+// 初始化官方账号 ChatRoom（如果不存在）
+const officialExists = db.prepare('SELECT id FROM users WHERE isOfficial = 1').get()
+if (!officialExists) {
+  // 检查是否已有同名非官方用户
+  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get('ChatRoom') as any
+  if (existing) {
+    db.prepare('UPDATE users SET isOfficial = 1 WHERE id = ?').run(existing.id)
+  } else {
+    // 同步 hash
+    const bcrypt = (await import('bcryptjs')).default
+    const hashed = bcrypt.hashSync('chatroom2026', 8)
+    db.prepare('INSERT INTO users (username, password, email, bio, isOfficial, avatar) VALUES (?, ?, ?, ?, 1, ?)').run(
+      'ChatRoom', hashed, 'official@chatroom.app', 'ChatRoom官方账号，欢迎关注！', ''
+    )
+  }
+}
 
 // ==================== 模块级 prepared statement 缓存 ====================
 // 这些是热点查询，模块加载时编译一次，后续零开销
