@@ -61,7 +61,10 @@ export default function VipPlans() {
           localStorage.setItem('user', JSON.stringify(u))
         }
         // 同步更新 Zustand store，左侧栏立即显示 VIP 标识
-        useAuthStore.setState({ user: { ...useAuthStore.getState().user!, vip: 1 } })
+        const currentUser = useAuthStore.getState().user
+        if (currentUser) {
+          useAuthStore.setState({ user: { ...currentUser, vip: 1 } })
+        }
       }
     } catch (err: any) {
       alert(err.message)

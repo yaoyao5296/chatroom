@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { api } from '@/lib/api'
@@ -23,6 +23,7 @@ export default function Register() {
 
   const startCountdown = () => {
     setCountdown(60)
+    if (timerRef.current) clearInterval(timerRef.current)
     timerRef.current = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
@@ -33,6 +34,13 @@ export default function Register() {
       })
     }, 1000)
   }
+
+  // 组件卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+  }, [])
 
   const handleSendCode = async () => {
     if (!email) {

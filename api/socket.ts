@@ -171,7 +171,7 @@ function incrementUnreadCount(userId: number, targetType: 'friend' | 'group', ta
 
 // =============== 优化 3：Socket 事件处理 ===============
 
-function emitToUser(userId: number, event: string, data: any): void {
+export function emitToUser(userId: number, event: string, data: any): void {
   const sids = getSocketIdsByUserId(userId)
   for (let i = 0; i < sids.length; i++) {
     io.to(sids[i]).emit(event, data)

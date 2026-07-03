@@ -9,6 +9,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import crypto from 'crypto'
 import { v2 as cloudinary } from 'cloudinary'
+import { authMiddleware } from '../middleware/auth.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -80,7 +81,7 @@ function uploadErrorHandler(err: any, req: Request, res: Response, next: NextFun
 
 // FormData 上传 (multipart/form-data)
 // 优先使用 Cloudinary，不可用时降级为本地存储
-router.post('/', upload.single('file'), uploadErrorHandler, async (req: Request, res: Response): Promise<void> => {
+router.post('/', authMiddleware, upload.single('file'), uploadErrorHandler, async (req: Request, res: Response): Promise<void> => {
   try {
     if (!req.file) {
       res.status(400).json({ success: false, error: '缺少文件' })

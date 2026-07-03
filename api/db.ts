@@ -169,6 +169,16 @@ db.exec(`
     createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(groupId, inviteeId, status)
   );
+
+  CREATE TABLE IF NOT EXISTS vip_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER NOT NULL,
+    planId TEXT NOT NULL,
+    amount REAL NOT NULL,
+    outTradeNo TEXT UNIQUE NOT NULL,
+    status TEXT DEFAULT 'pending',
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `)
 
 // ==================== 核心索引 & 覆盖索引（查询零回表）====================

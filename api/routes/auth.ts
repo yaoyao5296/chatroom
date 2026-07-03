@@ -334,12 +334,12 @@ router.post('/password/send-code', authMiddleware, async (req: Request, res: Res
     }
 
     console.log(`[password-code] 用户 ${userId} 邮箱 ${email} 验证码: ${code}`)
-    // 注意：实际生产环境需要真实邮件服务，这里返回验证码用于开发调试
+    // 生产环境不返回验证码明文
     res.json({
       success: true,
       sent: true,
-      message: `验证码已发送到 ${email}（开发环境直接显示: ${code}）`,
-      code,
+      message: `验证码已发送到 ${email}`,
+      ...(process.env.NODE_ENV !== 'production' ? { code } : {}),
     })
   } catch (error: any) {
     console.error('[password-send-code]', error?.message || error)
@@ -482,12 +482,12 @@ router.post('/password', authMiddleware, async (req: Request, res: Response): Pr
 })
 
 // ==================== 忘记密码 ====================
-// 免登录，通过用户名重置密码（项目无邮件/短信服务，简化流程）
+// 需要提供验证码（通过 /api/verification/send 获取）
 router.post('/forgot-password', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { username, newPassword } = req.body
-    if (!username || !newPassword) {
-      res.status(400).json({ success: false, error: '请提供用户名和新密码' })
+    const { username, newPassword, code, target } = req.body
+    if (!username || !newPassword || !code || !target) {
+      res.status(400).json({ success: false, error: '请提供用户名、新密码、验证码和验证目标' })
       return
     }
     if (newPassword.length < 6) {
@@ -500,6 +500,26 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
       res.status(404).json({ success: false, error: '未找到该用户，请检查用户名是否正确' })
       return
     }
+
+    // 校验验证码
+    const vc = stmtCache
+      .get('SELECT code, expiresAt, used FROM verification_codes WHERE target = ? AND type = ? AND code = ? ORDER BY id DESC LIMIT 1')
+      .get(target, 'reset_password', code) as any
+    if (!vc) {
+      res.status(400).json({ success: false, error: '验证码错误' })
+      return
+    }
+    if (vc.used) {
+      res.status(400).json({ success: false, error: '验证码已使用' })
+      return
+    }
+    if (new Date(vc.expiresAt) < new Date()) {
+      res.status(400).json({ success: false, error: '验证码已过期' })
+      return
+    }
+
+    // 标记验证码已使用
+    stmtCache.get('UPDATE verification_codes SET used = 1 WHERE target = ? AND code = ?').run(target, code)
 
     const hashed = await bcrypt.hash(newPassword, BCRYPT_COST)
     stmtCache.get('UPDATE users SET password = ? WHERE id = ?').run(hashed, user.id)

@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { api } from '@/lib/api'
 import { captureFaceDescriptor, supportsFaceDetector, getModelStatus, onModelStatusChange, type ModelStatus } from '@/lib/face'
+import { connectSocket } from '@/lib/socket'
 import { Camera, Eye, EyeOff, Shield, Loader2, ScanFace, KeyRound } from 'lucide-react'
 
 /**
@@ -35,9 +36,12 @@ export default function Login() {
   // 忘记密码
   const [forgotModal, setForgotModal] = useState(false)
   const [forgotUsername, setForgotUsername] = useState('')
+  const [forgotTarget, setForgotTarget] = useState('')
+  const [forgotCode, setForgotCode] = useState('')
   const [forgotNewPassword, setForgotNewPassword] = useState('')
   const [forgotConfirmPassword, setForgotConfirmPassword] = useState('')
   const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgotSending, setForgotSending] = useState(false)
   const [forgotError, setForgotError] = useState('')
   const [forgotSuccess, setForgotSuccess] = useState('')
   const [forgotShowPassword, setForgotShowPassword] = useState(false)
@@ -49,12 +53,14 @@ export default function Login() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const mountedRef = useRef(true)
+  const forgotTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
   useEffect(() => {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
       stopCamera()
+      if (forgotTimerRef.current) clearTimeout(forgotTimerRef.current)
     }
   }, [])
 
@@ -120,6 +126,7 @@ export default function Login() {
         localStorage.setItem('token', res.token)
         localStorage.setItem('user', JSON.stringify(res.user))
         useAuthStore.setState({ user: res.user, token: res.token, isLoggedIn: true })
+        connectSocket(res.token)
         const mode = precise ? '精准模式' : '兼容模式'
         setSuccess(`识别成功 (${mode} score=${res.score})，正在进入聊天...`)
         stopCamera()
@@ -164,6 +171,8 @@ export default function Login() {
     setForgotError('')
     setForgotSuccess('')
     setForgotUsername(loginId.trim() || '')
+    setForgotTarget('')
+    setForgotCode('')
     setForgotNewPassword('')
     setForgotConfirmPassword('')
   }
@@ -179,22 +188,44 @@ export default function Login() {
     setForgotError('')
     setForgotSuccess('')
     if (!forgotUsername.trim()) { setForgotError('请输入用户名'); return }
+    if (!forgotTarget.trim()) { setForgotError('请输入邮箱或手机号'); return }
+    if (!forgotCode.trim()) { setForgotError('请输入验证码'); return }
     if (!forgotNewPassword) { setForgotError('请输入新密码'); return }
     if (forgotNewPassword.length < 6) { setForgotError('新密码长度不能少于 6 个字符'); return }
     if (forgotNewPassword !== forgotConfirmPassword) { setForgotError('两次输入的新密码不一致'); return }
 
     setForgotLoading(true)
     try {
-      await api.forgotPassword(forgotUsername.trim(), forgotNewPassword)
+      await api.forgotPassword(forgotUsername.trim(), forgotNewPassword, forgotCode.trim(), forgotTarget.trim())
       setForgotSuccess('密码重置成功！2 秒后返回登录...')
-      setTimeout(() => {
-        setForgotModal(false)
-        setPassword('')
+      forgotTimerRef.current = setTimeout(() => {
+        if (mountedRef.current) {
+          setForgotModal(false)
+          setPassword('')
+        }
       }, 1800)
     } catch (err: any) {
       setForgotError(err.message || '重置失败，请重试')
     } finally {
       setForgotLoading(false)
+    }
+  }
+
+  // 发送验证码
+  async function handleForgotSendCode() {
+    if (!forgotTarget.trim()) {
+      setForgotError('请先输入邮箱或手机号')
+      return
+    }
+    setForgotSending(true)
+    try {
+      await api.sendVerificationCode(forgotTarget.trim())
+      setForgotError('')
+      // 开发环境验证码会返回在响应中，自动填入
+    } catch (err: any) {
+      setForgotError(err.message || '发送验证码失败')
+    } finally {
+      setForgotSending(false)
     }
   }
 
@@ -379,7 +410,7 @@ export default function Login() {
                 重置密码
               </h3>
               <p className="text-sm text-gray-400 mb-4">
-                输入您的用户名和新密码，系统将重置您的登录密码。
+                输入用户名、验证目标和验证码，重置您的登录密码。
               </p>
 
               <form onSubmit={handleForgotSubmit} className="space-y-3">
@@ -401,6 +432,42 @@ export default function Login() {
                     required
                     disabled={forgotLoading}
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">邮箱/手机号（用于接收验证码）</label>
+                  <input
+                    type="text"
+                    value={forgotTarget}
+                    onChange={(e) => setForgotTarget(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-[#0F172A] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+                    placeholder="请输入注册时的邮箱或手机号"
+                    required
+                    disabled={forgotLoading}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">验证码</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={forgotCode}
+                      onChange={(e) => setForgotCode(e.target.value)}
+                      className="flex-1 px-4 py-2.5 bg-[#0F172A] border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+                      placeholder="6位验证码"
+                      required
+                      disabled={forgotLoading}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleForgotSendCode}
+                      disabled={forgotSending || forgotLoading}
+                      className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white text-sm rounded-lg transition-colors whitespace-nowrap"
+                    >
+                      {forgotSending ? '发送中...' : '发送验证码'}
+                    </button>
+                  </div>
                 </div>
 
                 <div>

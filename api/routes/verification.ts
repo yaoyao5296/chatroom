@@ -24,7 +24,11 @@ router.post('/send', (req: Request, res: Response): void => {
       .get('INSERT INTO verification_codes (target, code, expiresAt, type) VALUES (?, ?, ?, ?)')
       .run(target, code, isoExpires, 'register')
 
-    res.json({ success: true, message: '验证码已发送', code }) // 仅开发环境返回 code
+    res.json({
+      success: true,
+      message: '验证码已发送',
+      ...(process.env.NODE_ENV !== 'production' ? { code } : {}),
+    })
   } catch (error: any) {
     console.error('[verify-send]', error?.message || error)
     res.status(500).json({ success: false, error: '发送失败' })

@@ -4,7 +4,7 @@
 import { Router, type Request, type Response } from 'express'
 import db, { stmtCache } from '../db.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { getIO } from '../socket.js'
+import { getIO, emitToUser } from '../socket.js'
 
 const router = Router()
 
@@ -161,7 +161,7 @@ router.post('/:id/members', authMiddleware, (req: Request, res: Response): void 
       if (r.changes > 0) {
         invited++
         if (io) {
-          io.to(mid.toString()).emit('group_invitation', {
+          emitToUser(mid, 'group_invitation', {
             groupId,
             groupName: group.name,
             inviterId: userId,
@@ -345,7 +345,7 @@ router.post('/invitations/:id/respond', authMiddleware, (req: Request, res: Resp
       tx()
       const io = getIO()
       if (io) {
-        io.to(userId.toString()).emit('group_created')
+        emitToUser(userId, 'group_created', {})
       }
       res.json({ success: true, message: '已加入群聊', groupId: invitation.groupId })
     } else {

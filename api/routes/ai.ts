@@ -12,6 +12,20 @@ const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions'
 // 对话记忆（最多保留每用户最近10轮）
 const historyMap = new Map<number, Array<{ role: string; content: string }>>()
 
+// 每 30 分钟清理不活跃用户（超过 30 分钟未对话的清理历史）
+setInterval(() => {
+  // 简单策略：保留最近活跃的 50 个用户
+  if (historyMap.size > 50) {
+    const keys = historyMap.keys()
+    let count = historyMap.size - 50
+    for (const k of keys) {
+      if (count <= 0) break
+      historyMap.delete(k)
+      count--
+    }
+  }
+}, 30 * 60 * 1000)
+
 function getHistory(userId: number): Array<{ role: string; content: string }> {
   if (!historyMap.has(userId)) historyMap.set(userId, [])
   return historyMap.get(userId)!

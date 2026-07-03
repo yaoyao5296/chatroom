@@ -191,7 +191,7 @@ router.post('/deactivate', authMiddleware, (req: Request, res: Response): void =
       // 删除未读计数
       stmtCache.get('DELETE FROM unread_counts WHERE userId = ?').run(userId)
       // 删除验证码
-      stmtCache.get('DELETE FROM verification_codes WHERE email = (SELECT email FROM users WHERE id = ?)').run(userId)
+      stmtCache.get('DELETE FROM verification_codes WHERE target = (SELECT email FROM users WHERE id = ?)').run(userId)
       // 删除用户
       stmtCache.get('DELETE FROM users WHERE id = ?').run(userId)
     })

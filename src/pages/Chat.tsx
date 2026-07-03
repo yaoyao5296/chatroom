@@ -384,12 +384,29 @@ export default function Chat() {
     }
   }
 
-  // 下载文件（使用服务端下载接口，保留原始文件名）
-  const handleDownloadFile = (messageId: number) => {
+  // 下载文件（使用 Authorization header，避免 token 暴露在 URL 中）
+  const handleDownloadFile = async (messageId: number) => {
     const token = localStorage.getItem('token')
     if (!token) return
-    // 打开带认证的下载链接
-    window.open(`/api/download/${messageId}?token=${token}`, '_blank')
+    try {
+      const res = await fetch(`/api/download/${messageId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error('下载失败')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const disposition = res.headers.get('content-disposition')
+      const filename = disposition?.match(/filename="?(.+?)"?$/)?.[1] || `file-${messageId}`
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      alert(err.message || '下载失败')
+    }
   }
 
   // 格式化时间（24小时制，强制本地时间）

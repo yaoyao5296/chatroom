@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMomentsStore } from '@/store/momentsStore'
 import { api } from '@/lib/api'
@@ -9,7 +9,6 @@ export default function CreatePost() {
   const navigate = useNavigate()
   const addPost = useMomentsStore((s) => s.addPost)
   const [content, setContent] = useState('')
-  const [imageUrl, setImageUrl] = useState('')
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState('')
   const [videoFile, setVideoFile] = useState<File | null>(null)
@@ -55,16 +54,26 @@ export default function CreatePost() {
   }
 
   const removeImage = () => {
+    if (imagePreview) URL.revokeObjectURL(imagePreview)
     setImageFile(null)
     setImagePreview('')
     if (imageInputRef.current) imageInputRef.current.value = ''
   }
 
   const removeVideo = () => {
+    if (videoPreview) URL.revokeObjectURL(videoPreview)
     setVideoFile(null)
     setVideoPreview('')
     if (videoInputRef.current) videoInputRef.current.value = ''
   }
+
+  // 组件卸载时清理 Object URL
+  useEffect(() => {
+    return () => {
+      if (imagePreview) URL.revokeObjectURL(imagePreview)
+      if (videoPreview) URL.revokeObjectURL(videoPreview)
+    }
+  }, [])
 
   const handleSubmit = async () => {
     if (!content.trim() && !imageFile && !videoFile) {

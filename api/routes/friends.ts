@@ -4,7 +4,7 @@
 import { Router, type Request, type Response } from 'express'
 import db, { stmtCache } from '../db.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { getIO } from '../socket.js'
+import { getIO, emitToUser } from '../socket.js'
 
 const router = Router()
 
@@ -78,8 +78,8 @@ router.post('/request', authMiddleware, (req: Request, res: Response): void => {
 
         const io = getIO()
         if (io) {
-          io.to(userId.toString()).emit('friend_added')
-          io.to(friend.id.toString()).emit('friend_added')
+          emitToUser(userId, 'friend_added', {})
+          emitToUser(friend.id, 'friend_added', {})
         }
         res.json({ success: true, message: '对方已向你发送过好友请求，已自动添加为好友', friend: { id: friend.id, username: friend.username } })
         return
@@ -98,7 +98,7 @@ router.post('/request', authMiddleware, (req: Request, res: Response): void => {
 
       const io = getIO()
       if (io) {
-        io.to(friend.id.toString()).emit('friend_request', {
+        emitToUser(friend.id, 'friend_request', {
           id: existingRequest.id,
           senderId: userId,
           senderUsername: (req as any).user.username,
@@ -116,7 +116,7 @@ router.post('/request', authMiddleware, (req: Request, res: Response): void => {
 
     const io = getIO()
     if (io) {
-      io.to(friend.id.toString()).emit('friend_request', {
+      emitToUser(friend.id, 'friend_request', {
         id: newRequestId,
         senderId: userId,
         senderUsername: (req as any).user.username,
@@ -160,16 +160,16 @@ router.post('/respond', authMiddleware, (req: Request, res: Response): void => {
 
       const io = getIO()
       if (io) {
-        io.to(userId.toString()).emit('friend_added')
-        io.to(request.senderId.toString()).emit('friend_request_responded', { accepted: true })
-        io.to(request.senderId.toString()).emit('friend_added')
+        emitToUser(userId, 'friend_added', {})
+        emitToUser(request.senderId, 'friend_request_responded', { accepted: true })
+        emitToUser(request.senderId, 'friend_added', {})
       }
       res.json({ success: true, message: '已同意好友请求' })
     } else {
       stmtCache.get('UPDATE friend_requests SET status = ? WHERE id = ?').run('rejected', requestId)
       const io = getIO()
       if (io) {
-        io.to(request.senderId.toString()).emit('friend_request_responded', { accepted: false })
+        emitToUser(request.senderId, 'friend_request_responded', { accepted: false })
       }
       res.json({ success: true, message: '已拒绝好友请求' })
     }

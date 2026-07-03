@@ -195,11 +195,11 @@ export const api = {
     })
   },
 
-  // 忘记密码：通过用户名重置密码
-  forgotPassword(username: string, newPassword: string) {
+  // 忘记密码：通过用户名 + 验证码重置密码
+  forgotPassword(username: string, newPassword: string, code: string, target: string) {
     return request<{ success: boolean; message: string }>('/auth/forgot-password', {
       method: 'POST',
-      body: JSON.stringify({ username, newPassword }),
+      body: JSON.stringify({ username, newPassword, code, target }),
     })
   },
 
