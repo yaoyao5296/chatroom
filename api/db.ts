@@ -215,7 +215,7 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_posts_user ON posts(userId);`)
 // 评论：按 postId 聚合
 db.exec(`CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(postId);`)
 db.exec(`CREATE INDEX IF NOT EXISTS idx_comments_post_created ON comments(postId, createdAt ASC);`)
-db.exec(`CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parentId);`)
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parentId);`) } catch {}
 
 // 通知：按用户 + 未读查询
 db.exec(`CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(userId, isRead);`)
