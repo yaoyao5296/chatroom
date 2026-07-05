@@ -4,7 +4,7 @@ chcp 65001 >nul
 title ChatRoom 服务器
 
 echo ========================================
-echo   ChatRoom 服务器启动脚本
+echo   ChatRoom 网页版服务器
 echo ========================================
 echo.
 
