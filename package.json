@@ -41,6 +41,7 @@
     "@capacitor/cli": "^8.4.0",
     "@capacitor/core": "^8.4.0",
     "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/local-notifications": "^7.0.0",
     "@sentry/react": "^10.63.0",
     "@vladmandic/face-api": "^1.7.15",
     "bcryptjs": "^3.0.3",
