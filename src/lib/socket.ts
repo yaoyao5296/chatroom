@@ -9,6 +9,10 @@ import { io, Socket } from 'socket.io-client'
 import { getApiBaseUrl } from './api'
 import { isAndroid, isNativeApp } from './platform'
 
+// 备用服务器地址（Socket.io 连接）
+const IPV6_SOCKET = 'http://[2409:8a50:1035:6d50:5228:73ff:fe48:f26f]:3001'
+const IPV4_SOCKET = 'http://120.228.82.170:3001'
+
 let socket: Socket | null = null
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 let reconnectListeners: Array<() => void> = [] // 外部可注册重连回调
@@ -49,34 +53,62 @@ export function connectSocket(token: string) {
   }
 
   const url = getSocketUrl()
+  let fallbackTried = false
 
   socket = io(url, {
     auth: { token },
     transports: ['polling', 'websocket'],
     upgrade: true,
     reconnection: true,
-    reconnectionDelay: 1000,         // 首次重试等 1 秒
-    reconnectionDelayMax: 15000,     // 最长 15 秒间隔
-    randomizationFactor: 0.5,        // 增加随机因子防雪崩
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 15000,
+    randomizationFactor: 0.5,
     timeout: 20000,
   })
 
   socket.on('connect', () => {
     console.log('[socket] 已连接')
     startHeartbeat()
-    // 重连成功时触发外部回调（例如刷新在线用户列表）
     reconnectListeners.forEach((fn) => fn())
   })
 
   socket.on('disconnect', (reason: string) => {
     console.log('[socket] 断开:', reason)
-    // 注：不停止心跳，socket.io 的 reconnection 会自动重连
-    // 如果是 "io client disconnect"（用户主动断开），心跳 timer 会在 disconnectSocket 中清理
   })
 
   socket.on('connect_error', (error) => {
-    // 不向用户展示错误，静默继续重连
     console.log('[socket] 连接错误（自动重连中）:', error.message)
+    // IPv6 失败 → 尝试 IPv4
+    if (!fallbackTried && isNativeApp() && isAndroid() && url === IPV6_SOCKET) {
+      fallbackTried = true
+      console.log('[socket] IPv6 连接失败，尝试 IPv4...')
+      socket?.disconnect()
+      socket = io(IPV4_SOCKET, {
+        auth: { token },
+        transports: ['polling', 'websocket'],
+        upgrade: true,
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 15000,
+        randomizationFactor: 0.5,
+        timeout: 20000,
+      })
+      // 重新绑定事件
+      socket.on('connect', () => {
+        console.log('[socket] 已连接 (IPv4)')
+        startHeartbeat()
+        reconnectListeners.forEach((fn) => fn())
+      })
+      socket.on('disconnect', (reason: string) => {
+        console.log('[socket] 断开:', reason)
+      })
+      socket.on('connect_error', (err) => {
+        console.log('[socket] 连接错误:', err.message)
+      })
+      socket.on('reconnect', (attemptNumber: number) => {
+        console.log(`[socket] 第 ${attemptNumber} 次尝试后重连成功`)
+      })
+    }
   })
 
   socket.on('reconnect', (attemptNumber: number) => {

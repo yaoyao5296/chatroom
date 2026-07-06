@@ -6,6 +6,10 @@
 
 import { isAndroid, isNativeApp } from './platform'
 
+// 双栈服务器地址：IPv6 优先，IPv4 自动降级
+const IPV6_BASE = 'http://[2409:8a50:1035:6d50:5228:73ff:fe48:f26f]:3001/api'
+const IPV4_BASE = 'http://120.228.82.170:3001/api'
+
 // Android 原生客户端：连接到本地运行的 Express 服务器（adb reverse 或局域网 IP）
 // 浏览器开发：使用 vite proxy 转发 /api
 function detectApiBase(): string {
@@ -16,7 +20,8 @@ function detectApiBase(): string {
     }
     const stored = localStorage.getItem('api_base_url')
     if (stored) return stored
-    return 'http://10.0.2.2:3001/api'
+    // 默认 IPv6 优先
+    return IPV6_BASE
   }
   // 生产构建：使用 VITE_API_BASE 环境变量
   if (import.meta.env.VITE_API_BASE) {
@@ -26,9 +31,12 @@ function detectApiBase(): string {
 }
 
 let API_BASE = detectApiBase()
+// 备用地址（IPv6 失败时尝试 IPv4）
+let API_FALLBACK = (isNativeApp() && isAndroid() && API_BASE === IPV6_BASE) ? IPV4_BASE : ''
 
 export function setApiBaseUrl(url: string) {
   API_BASE = url || '/api'
+  API_FALLBACK = ''
   localStorage.setItem('api_base_url', API_BASE)
 }
 
@@ -108,17 +116,14 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     throw new Error('当前无网络连接，请检查网络后重试')
   }
 
-  try {
-    const res = await fetch(`${API_BASE}${url}`, {
-      ...options,
-      headers,
-    })
+  // 执行请求，支持自动降级（IPv6 → IPv4）
+  const doFetch = async (base: string): Promise<T> => {
+    const res = await fetch(`${base}${url}`, { ...options, headers })
 
     const contentType = res.headers.get('content-type') || ''
     if (!contentType.includes('application/json')) {
       const text = await res.text().catch(() => '')
       const errMsg = text ? `服务器返回了非 JSON 响应 (${res.status})` : '网络错误，请检查服务器是否在运行'
-      // 404 / 502 / 503 / 504 等通常意味着服务已下线
       if (res.status === 0 || res.status >= 500 || res.status === 404) {
         window.dispatchEvent(new CustomEvent('server-offline', {
           detail: { message: errMsg, status: res.status },
@@ -130,14 +135,12 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     const data = await res.json()
 
     if (!res.ok) {
-      // 401 / 403：清除登录状态并触发全局跳转
       if (res.status === 401 || res.status === 403) {
         localStorage.removeItem('token')
         localStorage.removeItem('user')
         window.dispatchEvent(new CustomEvent('auth-expired'))
         throw new Error(data.error || '登录已过期，请重新登录')
       }
-      // 5xx：服务器不可达
       if (res.status >= 500) {
         window.dispatchEvent(new CustomEvent('server-offline', {
           detail: { message: `服务器异常 (${res.status})，请稍后重试`, status: res.status },
@@ -147,8 +150,27 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     }
 
     return data
+  }
+
+  try {
+    return await doFetch(API_BASE)
   } catch (err: any) {
-    // 最常见的网络错误：fetch() 本身抛 TypeError → 服务器完全不可达
+    // 网络错误 → 尝试备用地址
+    if (isNetworkError(err) && API_FALLBACK) {
+      try {
+        return await doFetch(API_FALLBACK)
+      } catch (fallbackErr: any) {
+        // 备用也失败
+        if (isNetworkError(fallbackErr)) {
+          window.dispatchEvent(new CustomEvent('server-offline', {
+            detail: { message: '无法连接到服务器，请检查网络或服务器地址' },
+          }))
+          throw new Error('无法连接到服务器，请检查网络或服务器地址')
+        }
+        throw fallbackErr
+      }
+    }
+    // 没有备用地址，或非网络错误
     if (isNetworkError(err)) {
       window.dispatchEvent(new CustomEvent('server-offline', {
         detail: { message: '无法连接到服务器，请检查网络或服务器地址' },
