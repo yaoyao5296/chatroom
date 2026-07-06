@@ -1,8 +1,9 @@
 {
-  "name": "workspace",
+  "name": "chatroom",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "start": "NODE_ENV=production tsx api/server.ts",
     "start:lean": "NODE_ENV=production node --max-old-space-size=384 --optimize-for-size --max-semi-space-size=2 --initial-old-space-size=128 --import tsx api/server.ts",
@@ -18,7 +19,15 @@
     "android:build": "vite build && cap sync android && cd android && gradlew assembleDebug && cd ..",
     "android:open": "cap open android",
     "android:run": "cap run android",
-    "android:sync": "cap sync android"
+    "android:sync": "cap sync android",
+    "ios:add": "cap add ios",
+    "ios:build": "vite build && cap sync ios",
+    "ios:open": "cap open ios",
+    "electron:dev": "vite build && electron .",
+    "electron:build:win": "vite build && electron-builder --win",
+    "electron:build:mac": "vite build && electron-builder --mac",
+    "electron:build:linux": "vite build && electron-builder --linux",
+    "electron:build:all": "vite build && electron-builder --win --mac --linux"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -74,6 +83,8 @@
     "autoprefixer": "^10.4.21",
     "babel-plugin-react-dev-locator": "^1.0.0",
     "concurrently": "^9.2.1",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
     "eslint": "^9.25.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
@@ -88,5 +99,40 @@
     "vite": "^6.4.3",
     "vite-plugin-trae-solo-badge": "^1.0.0",
     "vite-tsconfig-paths": "^5.1.4"
+  },
+  "build": {
+    "appId": "com.chatroom.desktop",
+    "productName": "ChatRoom",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "api/**/*",
+      "electron/**/*",
+      "node_modules/**/*",
+      "package.json",
+      ".env"
+    ],
+    "extraResources": [
+      { "from": "uploads", "to": "uploads" }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.social-networking"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Network"
+    }
   }
 }

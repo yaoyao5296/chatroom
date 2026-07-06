@@ -46,3 +46,9 @@ uploads/
 
 # JWT secret (auto-generated, do not commit)
 .jwt_secret
+
+# Electron build output
+release/
+
+# iOS build artifacts
+ios/
