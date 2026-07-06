@@ -38,7 +38,7 @@ if "%ANDROID_HOME%"=="" (
         echo   https://developer.android.com/studio#command-line-tools-only
         echo.
         echo 安装后请设置环境变量 ANDROID_HOME 指向 SDK 目录
-        echo 例如: set ANDROID_HOME=C:\Users\你的用户名\AppData\Local\Android\Sdk
+        echo 例如: set ANDROID_HOME=C:\Users\Administrator\AppData\Local\Android\Sdk
         echo.
         set /p CONTINUE="如果已安装但未设置环境变量，请输入 SDK 路径后回车（直接回车跳过）: "
         if not "!CONTINUE!"=="" (
