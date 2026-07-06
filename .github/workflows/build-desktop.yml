@@ -22,6 +22,8 @@ jobs:
         run: npx vite build
 
       - name: 打包 Windows 安装包
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --win
 
       - name: 上传安装包
@@ -48,6 +50,8 @@ jobs:
         run: npx vite build
 
       - name: 打包 Mac 安装包
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --mac
 
       - name: 上传安装包
@@ -74,6 +78,8 @@ jobs:
         run: npx vite build
 
       - name: 打包 Linux 安装包
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --linux
 
       - name: 上传安装包
