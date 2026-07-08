@@ -14,10 +14,12 @@ import http from 'http'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { spawn, type ChildProcess } from 'child_process'
 import app from './app.js'
 import { initSocket } from './socket.js'
 import db, { stmtCache } from './db.js'
 import { initRedis, closeRedis, isUsingRedis } from './redis.js'
+import { triggerEmergencyShutdown } from './routes/errorReport.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -53,13 +55,64 @@ async function start(): Promise<void> {
 }
 start()
 
-// ============ 未捕获异常（防止服务因偶发错误退出） ============
+// ============ 启动 Python Browser Agent 服务 ============
+let browserAgentProcess: ChildProcess | null = null
+
+function startBrowserAgent(): void {
+  const agentScript = path.join(__dirname, 'browser_agent.py')
+  if (!fs.existsSync(agentScript)) {
+    console.log('[server] Browser Agent 脚本不存在，跳过')
+    return
+  }
+  try {
+    browserAgentProcess = spawn('python3', [agentScript], {
+      stdio: 'pipe',
+      env: { ...process.env, BROWSER_AGENT_PORT: '3002' },
+    })
+    browserAgentProcess.stdout?.on('data', (data: Buffer) => {
+      console.log(`[browser-agent] ${data.toString().trim()}`)
+    })
+    browserAgentProcess.stderr?.on('data', (data: Buffer) => {
+      console.log(`[browser-agent:err] ${data.toString().trim()}`)
+    })
+    browserAgentProcess.on('close', (code: number | null) => {
+      console.log(`[browser-agent] 进程退出，code: ${code}`)
+      browserAgentProcess = null
+      // 3 秒后自动重启
+      if (!shuttingDown) {
+        console.log('[server] 3 秒后自动重启 Browser Agent...')
+        setTimeout(startBrowserAgent, 3000)
+      }
+    })
+    console.log('[server] Browser Agent 已启动 (端口 3002)')
+  } catch (err: any) {
+    console.log('[server] Browser Agent 启动失败:', err.message)
+    // 5 秒后重试
+    if (!shuttingDown) {
+      setTimeout(startBrowserAgent, 5000)
+    }
+  }
+}
+
+// 延迟启动，确保主服务先就绪
+setTimeout(startBrowserAgent, 2000)
+
+// ============ 未捕获异常（严重时自动停服） ============
+
 process.on('uncaughtException', (err) => {
   console.error('[server] 未捕获异常:', err.message)
   console.error(err.stack)
+  // 严重错误（内存溢出、数据库连接丢失等）直接触发停服
+  const fatalPatterns = ['ENOSPC', 'ECONNREFUSED', 'ETIMEDOUT', 'Out of memory', 'SQLITE']
+  const message = (err.message || '').toLowerCase()
+  const isFatal = fatalPatterns.some(p => message.includes(p.toLowerCase()))
+  if (isFatal) {
+    triggerEmergencyShutdown(`服务端未捕获异常: ${err.message.slice(0, 80)}`)
+  }
 })
 process.on('unhandledRejection', (reason: any) => {
-  console.error('[server] 未处理的 Promise 拒绝:', reason?.message || String(reason))
+  const msg = reason?.message || String(reason)
+  console.error('[server] 未处理的 Promise 拒绝:', msg)
 })
 
 // ============ 定时清理已注销账号 ============
@@ -194,6 +247,11 @@ async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
   console.log(`[server] 收到 ${signal}，开始优雅退出...`)
+  // 关闭 Python Agent
+  if (browserAgentProcess) {
+    browserAgentProcess.kill('SIGTERM')
+    console.log('[server] Browser Agent 已关闭')
+  }
   try {
     await new Promise<void>((resolve) => {
       server.close(() => resolve())

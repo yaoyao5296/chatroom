@@ -7,6 +7,8 @@ import { useUnreadStore } from "@/store/unreadStore"
 import type { Message, GroupMessage } from "@/lib/api"
 import { requestNotificationPermission, showNotification } from "@/lib/notification"
 import { disconnectSocket } from "@/lib/socket"
+import { initAISocket } from "@/lib/ai"
+import AIPanel from "@/components/AIPanel"
 import Login from "@/pages/Login"
 import Register from "@/pages/Register"
 import Friends from "@/pages/Friends"
@@ -204,10 +206,17 @@ function ServerOfflineBanner() {
 export default function App() {
   const init = useAuthStore((s) => s.init)
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn)
+  const [showAIPanel, setShowAIPanel] = useState(false)
 
   useEffect(() => {
     init()
   }, [init])
+
+  useEffect(() => {
+    if (!isLoggedIn || !showAIPanel) return
+    const cleanup = initAISocket()
+    return cleanup
+  }, [isLoggedIn, showAIPanel])
 
   return (
     <Router>
@@ -226,6 +235,25 @@ export default function App() {
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      {isLoggedIn && (
+        <>
+          <button
+            className="ai-toggle-btn"
+            onClick={() => setShowAIPanel(!showAIPanel)}
+            title="屿岸"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ai-toggle-icon">
+              <path d="M8 19c-2-1-4-4-4-8 0-3 1.5-5.5 3-7" />
+              <path d="M16 19c2-1 4-4 4-8 0-3-1.5-5.5-3-7" />
+              <path d="M12 22V10" />
+              <path d="M5 12h14" />
+              <path d="M7 15c1.5 1 3.5 1 5 0s3.5-1 5 0" />
+            </svg>
+            <span className="ai-toggle-label">AI</span>
+          </button>
+          {showAIPanel && <AIPanel onClose={() => setShowAIPanel(false)} />}
+        </>
+      )}
     </Router>
   )
 }

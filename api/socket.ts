@@ -223,7 +223,166 @@ export function initSocket(server: HTTPServer): SocketIOServer {
     }
   })
 
-  io.on('connection', (socket: any) => {
+// =============== 屿岸 · 群聊唤醒 ===============
+/**
+ * 在群聊中唤醒屿岸，执行 AI 任务并将结果发回群聊
+ * 定义在模块级别避免每次连接时重复定义
+ */
+async function handleGroupAITask(
+  groupId: number,
+  requesterId: number,
+  requesterName: string,
+  taskDesc: string,
+) {
+  try {
+    const agentUrl = process.env.BROWSER_AGENT_URL || 'http://localhost:3002'
+
+    // 发送"屿岸正在思考"提示
+    const thinkTimestamp = new Date().toISOString()
+    const thinkingMsg = {
+      id: Date.now() + Math.random(),
+      groupId,
+      senderId: 0,
+      senderName: '屿岸',
+      senderAvatar: '',
+      bio: 'AI 浏览器助手',
+      gender: '',
+      region: '',
+      content: `正在处理：${taskDesc.slice(0, 50)}${taskDesc.length > 50 ? '...' : ''}`,
+      type: 'text',
+      fileUrl: '',
+      timestamp: thinkTimestamp,
+      isAI: true,
+    }
+
+    // 保存到数据库
+    stmtInsertGroupMessage.run(groupId, 0, thinkingMsg.content, 'text', '', thinkTimestamp)
+
+    const members = stmtCache
+      .get('SELECT userId FROM group_members WHERE groupId = ?')
+      .all(groupId) as any[]
+    for (const m of members) {
+      const socketIds = getSocketIdsByUserId(m.userId)
+      for (const sid of socketIds) {
+        io.to(sid).emit('new_group_message', thinkingMsg)
+      }
+    }
+
+    console.log(`[屿岸] 群聊 ${groupId} @${requesterName} 唤醒: ${taskDesc.slice(0, 50)}`)
+
+    const response = await fetch(`${agentUrl}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        task: taskDesc,
+        max_steps: 10,
+        user_id: String(requesterId),
+        source: 'group',
+        target_id: String(groupId),
+      }),
+    })
+
+    const result = await response.json()
+
+    if (result.task_id) {
+      let attempts = 0
+      const maxAttempts = 120
+      while (attempts < maxAttempts) {
+        await new Promise(r => setTimeout(r, 2000))
+        const statusResp = await fetch(`${agentUrl}/status/${result.task_id}`)
+        const statusData = await statusResp.json()
+        const taskStatus = statusData.status
+
+        if (taskStatus === 'completed' || taskStatus === 'failed') {
+              const replyContent = taskStatus === 'completed'
+                ? `@${requesterName} ${statusData.result || '任务完成'}`.slice(0, 2000)
+                : `@${requesterName} 抱歉，任务失败：${statusData.error || '未知错误'}`.slice(0, 2000)
+
+              const replyTimestamp = new Date().toISOString()
+              const replyMsg = {
+                id: Date.now() + Math.random(),
+                groupId, senderId: 0, senderName: '屿岸',
+                senderAvatar: '', bio: 'AI 浏览器助手',
+                gender: '', region: '',
+                content: replyContent, type: 'text', fileUrl: '',
+                timestamp: replyTimestamp, isAI: true,
+              }
+
+              // 保存到数据库
+              stmtInsertGroupMessage.run(groupId, 0, replyContent, 'text', '', replyTimestamp)
+
+              for (const m of members) {
+                const socketIds = getSocketIdsByUserId(m.userId)
+                for (const sid of socketIds) {
+                  io.to(sid).emit('new_group_message', replyMsg)
+                }
+              }
+              break
+            }
+        attempts++
+      }
+
+      if (attempts >= maxAttempts) {
+            const timeoutTimestamp = new Date().toISOString()
+            const timeoutMsg = {
+              id: Date.now() + Math.random(),
+              groupId, senderId: 0, senderName: '屿岸',
+              senderAvatar: '',
+              content: `@${requesterName} 任务超时，请稍后重试`,
+              type: 'text', fileUrl: '',
+              timestamp: timeoutTimestamp, isAI: true,
+            }
+            stmtInsertGroupMessage.run(groupId, 0, timeoutMsg.content, 'text', '', timeoutTimestamp)
+            for (const m of members) {
+              const socketIds = getSocketIdsByUserId(m.userId)
+              for (const sid of socketIds) {
+                io.to(sid).emit('new_group_message', timeoutMsg)
+              }
+            }
+          }
+        } else {
+          const errorTimestamp = new Date().toISOString()
+          const errorMsg = {
+            id: Date.now() + Math.random(),
+            groupId, senderId: 0, senderName: '屿岸',
+            senderAvatar: '',
+            content: `@${requesterName} ${result.error || 'AI 服务未就绪'}`,
+            type: 'text', fileUrl: '',
+            timestamp: errorTimestamp, isAI: true,
+          }
+          stmtInsertGroupMessage.run(groupId, 0, errorMsg.content, 'text', '', errorTimestamp)
+          for (const m of members) {
+            const socketIds = getSocketIdsByUserId(m.userId)
+            for (const sid of socketIds) {
+              io.to(sid).emit('new_group_message', errorMsg)
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error('[屿岸/群聊] 错误:', err.message)
+        const errTimestamp = new Date().toISOString()
+        const errorMsg = {
+          id: Date.now() + Math.random(),
+          groupId, senderId: 0, senderName: '屿岸',
+          senderAvatar: '',
+          content: 'AI 服务未启动，请检查配置',
+          type: 'text', fileUrl: '',
+          timestamp: errTimestamp, isAI: true,
+        }
+        stmtInsertGroupMessage.run(groupId, 0, errorMsg.content, 'text', '', errTimestamp)
+        const members = stmtCache
+          .get('SELECT userId FROM group_members WHERE groupId = ?')
+          .all(groupId) as any[]
+        for (const m of members) {
+          const socketIds = getSocketIdsByUserId(m.userId)
+          for (const sid of socketIds) {
+            io.to(sid).emit('new_group_message', errorMsg)
+          }
+        }
+      }
+}
+
+io.on('connection', (socket: any) => {
     const user = socket.data.user as { id: number; username: string }
 
     addSocketMapping(socket.id, user.id, user.username, socket)
@@ -370,6 +529,17 @@ export function initSocket(server: HTTPServer): SocketIOServer {
         }
 
         socket.emit('new_group_message', message)
+
+        // ============ 检测 @屿岸 唤醒 ============
+        const content = data.content.trim()
+        const aiTrigger = /^@(屿岸|ai|AI|yua)\s+/i
+        const aiMatch = content.match(aiTrigger)
+        if (aiMatch) {
+          const taskDesc = content.slice(aiMatch[0].length).trim()
+          if (taskDesc) {
+            handleGroupAITask(data.groupId, user.id, (sender?.username || user.username), taskDesc)
+          }
+        }
       } catch (error) {
         console.error('[send_group_message]', error)
         socket.emit('error', { message: '群消息发送失败' })
@@ -379,6 +549,57 @@ export function initSocket(server: HTTPServer): SocketIOServer {
     socket.on('get_online_count', async () => {
       const count = await getOnlineCount()
       socket.emit('online_count', count)
+    })
+
+    // =============== 屿岸 · 浏览器代理事件 ===============
+    socket.on('ai_submit_task', async (data: { task: string; maxSteps?: number; source?: string; targetId?: string }) => {
+      try {
+        const agentUrl = process.env.BROWSER_AGENT_URL || 'http://localhost:3002'
+        const response = await fetch(`${agentUrl}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            task: data.task,
+            max_steps: data.maxSteps || 10,
+            user_id: String(user.id),
+            source: data.source || 'chat',
+            target_id: data.targetId || '',
+          }),
+        })
+        const result = await response.json()
+        if (result.task_id) {
+          socket.emit('ai_task_submitted', {
+            taskId: result.task_id,
+            task: data.task,
+            status: 'pending',
+          })
+          // 广播到群聊或 AI 面板
+          socket.broadcast.emit('ai_task_submitted', {
+            taskId: result.task_id,
+            task: data.task,
+            userId: user.id,
+            username: user.username,
+            source: data.source,
+            targetId: data.targetId,
+            status: 'pending',
+          })
+        } else {
+          socket.emit('error', { message: result.error || 'AI 任务提交失败' })
+        }
+      } catch (err: any) {
+        socket.emit('error', { message: 'AI 服务未启动: ' + err.message })
+      }
+    })
+
+    socket.on('ai_query_task', async (data: { taskId: string }) => {
+      try {
+        const agentUrl = process.env.BROWSER_AGENT_URL || 'http://localhost:3002'
+        const response = await fetch(`${agentUrl}/status/${data.taskId}`)
+        const result = await response.json()
+        socket.emit('ai_task_status', result)
+      } catch (err: any) {
+        socket.emit('ai_task_status', { error: err.message })
+      }
     })
 
     socket.on('disconnect', () => {

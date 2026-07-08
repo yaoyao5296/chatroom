@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/react'
 import App from './App'
 import { initAndroidPlatform } from './lib/android'
 import { preloadModels } from './lib/face'
+import { initErrorReporter } from './lib/errorReporter'
 import './index.css'
 
 // 初始化 Sentry 错误监控
@@ -16,6 +17,9 @@ if (import.meta.env.VITE_SENTRY_DSN) {
     replaysOnErrorSampleRate: 1.0,
   })
 }
+
+// 初始化自主错误监控（不依赖 Sentry，始终运行）
+initErrorReporter()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

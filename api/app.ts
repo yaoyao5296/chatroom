@@ -26,6 +26,8 @@ import vipRoutes from './routes/vip.js'
 import groupRoutes from './routes/groups.js'
 import unreadRoutes from './routes/unread.js'
 import locationRoutes from './routes/location.js'
+import aiRoutes from './routes/ai.js'
+import errorReportRoutes from './routes/errorReport.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -170,6 +172,8 @@ app.use('/api/posts', postsRoutes)
 app.use('/api/vip', vipRoutes)
 app.use('/api/groups', groupRoutes)
 app.use('/api/unread', unreadRoutes)
+app.use('/api/ai', aiRoutes)
+app.use('/api/error', errorReportRoutes)
 
 // ==================== 7) Health check（零依赖） ====================
 app.use('/api/health', (_req: Request, res: Response) => {

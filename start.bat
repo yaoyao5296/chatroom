@@ -25,6 +25,22 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+:: 检查 Python（AI 浏览器代理需要）
+where python3 >nul 2>&1 || where python >nul 2>&1
+if %errorlevel% equ 0 (
+    python3 -c "import browser_use" 2>nul || python -c "import browser_use" 2>nul
+    if %errorlevel% neq 0 (
+        echo [AI] 正在安装浏览器代理依赖...
+        pip install browser-use playwright 2>nul
+        playwright install chromium 2>nul
+    )
+    echo [AI] 浏览器代理模块已就绪
+) else (
+    echo [提示] 未找到 Python，AI 浏览器代理功能将不可用
+    echo 如需使用，请安装 Python 3.10+ 并运行:
+    echo   pip install browser-use playwright
+    echo   playwright install chromium
+)
 echo.
 echo [2/3] 构建前端...
 call npx vite build

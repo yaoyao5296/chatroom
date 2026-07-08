@@ -709,6 +709,17 @@ export default function Chat() {
             </button>
             <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.7z,.txt,.csv,.ppt,.pptx,.mp3,.json,.xml" onChange={handleFileUpload} className="hidden" />
 
+            {/* 群聊模式：@屿岸 快捷按钮 */}
+            {isGroupMode && (
+              <button
+                onClick={() => setText((prev) => prev + '@屿岸 ')}
+                title="唤醒屿岸 AI 助手"
+                className="px-2.5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-medium transition-all shrink-0"
+              >
+                @屿岸
+              </button>
+            )}
+
             <input
               type="text"
               value={text}
