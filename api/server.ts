@@ -14,12 +14,22 @@ import http from 'http'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { spawn, type ChildProcess } from 'child_process'
-import app from './app.js'
-import { initSocket } from './socket.js'
-import db, { stmtCache } from './db.js'
-import { initRedis, closeRedis, isUsingRedis } from './redis.js'
-import { triggerEmergencyShutdown } from './routes/errorReport.js'
+import { spawn, execSync, type ChildProcess } from 'child_process'
+import { decryptDatabase, encryptDatabase } from './encrypt.js'
+
+// 第一步：解密数据库（在加载任何数据库模块之前）
+decryptDatabase()
+
+// 第二步：动态加载数据库相关模块
+const [{ default: app }, { initSocket }, dbMod, { initRedis, closeRedis, isUsingRedis }, { triggerEmergencyShutdown }] = await Promise.all([
+  import('./app.js'),
+  import('./socket.js'),
+  import('./db.js'),
+  import('./redis.js'),
+  import('./routes/errorReport.js'),
+])
+const db = dbMod.default
+const { stmtCache } = dbMod
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -64,6 +74,14 @@ function startBrowserAgent(): void {
     console.log('[server] Browser Agent 脚本不存在，跳过')
     return
   }
+  // 先释放端口 3002
+  try {
+    const pid = execSync('lsof -ti:3002 2>/dev/null', { encoding: 'utf8', timeout: 3000 }).trim()
+    if (pid) {
+      process.kill(Number(pid), 'SIGKILL')
+      console.log('[server] 已释放端口 3002（旧进程）')
+    }
+  } catch {}
   try {
     browserAgentProcess = spawn('python3', [agentScript], {
       stdio: 'pipe',
@@ -265,6 +283,14 @@ async function gracefulShutdown(signal: string): Promise<void> {
     await closeRedis()
     console.log('[server] Redis 连接已关闭')
   }
+  // 关闭数据库并加密
+  try {
+    db.close()
+    console.log('[server] 数据库已关闭')
+  } catch (e: any) {
+    console.error('[server] 关闭数据库时出错:', e.message)
+  }
+  encryptDatabase()
   console.log('[server] 退出完成')
   process.exit(0)
 }

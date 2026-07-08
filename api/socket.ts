@@ -101,6 +101,19 @@ const MESSAGE_BATCH_LIMIT = 500
 
 let io: SocketIOServer
 
+// 屿岸 AI 机器人用户 ID
+const AI_BOT_ID: number = (() => {
+  try {
+    const row = db.prepare("SELECT id FROM users WHERE username = '屿岸'").get() as any
+    if (row) return row.id
+    // 如果不存在则创建
+    const info = db.prepare("INSERT INTO users (username, password, avatar, bio, isOfficial) VALUES ('屿岸', '', '', 'AI 浏览器助手', 1)").run()
+    return Number(info.lastInsertRowid)
+  } catch {
+    return 35 // 兜底
+  }
+})()
+
 // 预编译 statements —— 只在模块加载时执行一次
 const stmtInsertMessage = db.prepare(
   'INSERT INTO messages (senderId, receiverId, content, type, fileUrl, timestamp) VALUES (?, ?, ?, ?, ?, ?)'
@@ -242,7 +255,7 @@ async function handleGroupAITask(
     const thinkingMsg = {
       id: Date.now() + Math.random(),
       groupId,
-      senderId: 0,
+      senderId: AI_BOT_ID,
       senderName: '屿岸',
       senderAvatar: '',
       bio: 'AI 浏览器助手',
@@ -256,7 +269,7 @@ async function handleGroupAITask(
     }
 
     // 保存到数据库
-    stmtInsertGroupMessage.run(groupId, 0, thinkingMsg.content, 'text', '', thinkTimestamp)
+    stmtInsertGroupMessage.run(groupId, AI_BOT_ID, thinkingMsg.content, 'text', '', thinkTimestamp)
 
     const members = stmtCache
       .get('SELECT userId FROM group_members WHERE groupId = ?')
@@ -301,7 +314,7 @@ async function handleGroupAITask(
               const replyTimestamp = new Date().toISOString()
               const replyMsg = {
                 id: Date.now() + Math.random(),
-                groupId, senderId: 0, senderName: '屿岸',
+                groupId, senderId: AI_BOT_ID, senderName: '屿岸',
                 senderAvatar: '', bio: 'AI 浏览器助手',
                 gender: '', region: '',
                 content: replyContent, type: 'text', fileUrl: '',
@@ -309,7 +322,7 @@ async function handleGroupAITask(
               }
 
               // 保存到数据库
-              stmtInsertGroupMessage.run(groupId, 0, replyContent, 'text', '', replyTimestamp)
+              stmtInsertGroupMessage.run(groupId, AI_BOT_ID, replyContent, 'text', '', replyTimestamp)
 
               for (const m of members) {
                 const socketIds = getSocketIdsByUserId(m.userId)
@@ -326,13 +339,13 @@ async function handleGroupAITask(
             const timeoutTimestamp = new Date().toISOString()
             const timeoutMsg = {
               id: Date.now() + Math.random(),
-              groupId, senderId: 0, senderName: '屿岸',
+              groupId, senderId: AI_BOT_ID, senderName: '屿岸',
               senderAvatar: '',
               content: `@${requesterName} 任务超时，请稍后重试`,
               type: 'text', fileUrl: '',
               timestamp: timeoutTimestamp, isAI: true,
             }
-            stmtInsertGroupMessage.run(groupId, 0, timeoutMsg.content, 'text', '', timeoutTimestamp)
+            stmtInsertGroupMessage.run(groupId, AI_BOT_ID, timeoutMsg.content, 'text', '', timeoutTimestamp)
             for (const m of members) {
               const socketIds = getSocketIdsByUserId(m.userId)
               for (const sid of socketIds) {
@@ -344,13 +357,13 @@ async function handleGroupAITask(
           const errorTimestamp = new Date().toISOString()
           const errorMsg = {
             id: Date.now() + Math.random(),
-            groupId, senderId: 0, senderName: '屿岸',
+            groupId, senderId: AI_BOT_ID, senderName: '屿岸',
             senderAvatar: '',
             content: `@${requesterName} ${result.error || 'AI 服务未就绪'}`,
             type: 'text', fileUrl: '',
             timestamp: errorTimestamp, isAI: true,
           }
-          stmtInsertGroupMessage.run(groupId, 0, errorMsg.content, 'text', '', errorTimestamp)
+          stmtInsertGroupMessage.run(groupId, AI_BOT_ID, errorMsg.content, 'text', '', errorTimestamp)
           for (const m of members) {
             const socketIds = getSocketIdsByUserId(m.userId)
             for (const sid of socketIds) {
@@ -363,13 +376,13 @@ async function handleGroupAITask(
         const errTimestamp = new Date().toISOString()
         const errorMsg = {
           id: Date.now() + Math.random(),
-          groupId, senderId: 0, senderName: '屿岸',
+          groupId, senderId: AI_BOT_ID, senderName: '屿岸',
           senderAvatar: '',
           content: 'AI 服务未启动，请检查配置',
           type: 'text', fileUrl: '',
           timestamp: errTimestamp, isAI: true,
         }
-        stmtInsertGroupMessage.run(groupId, 0, errorMsg.content, 'text', '', errTimestamp)
+        stmtInsertGroupMessage.run(groupId, AI_BOT_ID, errorMsg.content, 'text', '', errTimestamp)
         const members = stmtCache
           .get('SELECT userId FROM group_members WHERE groupId = ?')
           .all(groupId) as any[]
@@ -532,12 +545,18 @@ io.on('connection', (socket: any) => {
 
         // ============ 检测 @屿岸 唤醒 ============
         const content = data.content.trim()
-        const aiTrigger = /^@(屿岸|ai|AI|yua)\s+/i
+        console.log(`[send_group_message] content="${content}"`)
+        const aiTrigger = /^@(屿岸|ai|AI|yua)\s*/i
         const aiMatch = content.match(aiTrigger)
+        console.log(`[send_group_message] aiMatch=`, aiMatch ? aiMatch[0] : 'null')
         if (aiMatch) {
           const taskDesc = content.slice(aiMatch[0].length).trim()
+          console.log(`[send_group_message] taskDesc="${taskDesc}"`)
           if (taskDesc) {
+            console.log(`[send_group_message] 唤醒屿岸: groupId=${data.groupId} user=${user.id} task=${taskDesc.slice(0, 50)}`)
             handleGroupAITask(data.groupId, user.id, (sender?.username || user.username), taskDesc)
+          } else {
+            console.log(`[send_group_message] 任务描述为空，忽略`)
           }
         }
       } catch (error) {

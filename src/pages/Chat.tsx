@@ -29,6 +29,7 @@ export default function Chat() {
   const [showMembersModal, setShowMembersModal] = useState(false)
   const [selectedMember, setSelectedMember] = useState<{ id: number; username: string; avatar?: string; bio?: string; gender?: string; region?: string } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const typingTimeoutRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -171,8 +172,24 @@ export default function Chat() {
 
   // 自动滚动到最新消息
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [friendMessages, currentGroupMessages])
+    const container = messagesContainerRef.current
+    if (container) {
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight
+      })
+    }
+  }, [currentGroupMessages, friendMessages])
+
+  // 监听容器内内容变化（图片加载等导致高度变化时自动滚动）
+  useEffect(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+    const observer = new MutationObserver(() => {
+      container.scrollTop = container.scrollHeight
+    })
+    observer.observe(container, { childList: true, subtree: true, attributes: false })
+    return () => observer.disconnect()
+  }, [])
 
   const handleSend = useCallback(async () => {
     if (!text.trim() || sending) return
@@ -502,7 +519,7 @@ export default function Chat() {
       </header>
 
       {/* Messages */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3">
+      <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3">
         {loading ? (
           <div className="space-y-4 pt-4">
             {[1, 2, 3].map((i) => (

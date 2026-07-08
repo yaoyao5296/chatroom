@@ -6,7 +6,7 @@ import { useUnreadStore } from '@/store/unreadStore'
 import { api, resolveStaticUrl, type GroupInfo } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
 import SafeImg from '@/components/SafeImg'
-import { MessageCircle, LogOut, UserPlus, Search, Users, Camera, Trash2, X, Settings as SettingsIcon, Newspaper, Crown, Bell, Check, Plus, Shield, Clock } from 'lucide-react'
+import { MessageCircle, LogOut, UserPlus, Search, Users, Camera, Trash2, X, Settings as SettingsIcon, Newspaper, Crown, Bell, Check, Plus, Shield, Clock, Info } from 'lucide-react'
 import NotificationBell from '@/components/NotificationBell'
 
 interface Friend {
@@ -272,7 +272,7 @@ export default function Friends() {
   return (
     <div className="h-screen bg-[#0F172A] flex overflow-hidden">
       {/* Sidebar */}
-      <div className="w-72 sm:w-80 bg-[#1E293B] border-r border-gray-800 flex-shrink-0 overflow-y-auto">
+      <div className="w-full bg-[#1E293B] border-r border-gray-800 overflow-y-auto">
         {/* Header */}
         <div className="p-4 border-b border-gray-800">
           <div className="flex items-center justify-between mb-4">
@@ -281,16 +281,18 @@ export default function Friends() {
               onClick={() => setShowAvatarModal(true)}
             >
               <div className="relative">
-                <SafeImg
-                  src={userAvatar}
-                  fallback={
-                    <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold">
-                      {user?.username?.[0]?.toUpperCase()}
-                    </div>
-                  }
-                  className="w-10 h-10 rounded-full object-cover"
-                />
-                <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/40 flex items-center justify-center transition-colors">
+                <div className="w-10 h-10 rounded-full overflow-hidden">
+                  <SafeImg
+                    src={userAvatar}
+                    fallback={
+                      <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold">
+                        {user?.username?.[0]?.toUpperCase()}
+                      </div>
+                    }
+                    className="w-10 h-10 object-cover"
+                  />
+                </div>
+                <div className="absolute inset-0 rounded-full overflow-hidden bg-black/0 group-hover:bg-black/40 flex items-center justify-center transition-colors">
                   <Camera className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
                 {user?.vip === 1 && (
@@ -301,7 +303,7 @@ export default function Friends() {
               </div>
               <div>
                 <div className="flex items-center gap-1.5">
-                  <h2 className="text-white font-semibold">{user?.username}</h2>
+                  <h2 className="text-white font-semibold truncate max-w-[160px]">{user?.username}</h2>
                   {user?.vip === 1 && (
                     <Crown className="w-4 h-4 text-yellow-400" />
                   )}
@@ -317,6 +319,13 @@ export default function Friends() {
                 title="设置"
               >
                 <SettingsIcon className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => navigate('/about')}
+                className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+                title="软件说明"
+              >
+                <Info className="w-5 h-5" />
               </button>
               <button
                 onClick={handleLogout}
@@ -708,17 +717,6 @@ export default function Friends() {
               <p className="text-xs text-yellow-500/60">{user?.vip === 1 ? '延长会员期限' : '解锁全部功能'}</p>
             </div>
           </button>
-        </div>
-      </div>
-
-      {/* Welcome area */}
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-blue-500/10 mb-4">
-            <MessageCircle className="w-10 h-10 text-blue-400" />
-          </div>
-          <h2 className="text-2xl font-bold text-white mb-2">欢迎来到 ChatRoom</h2>
-          <p className="text-gray-400">选择一个好友开始聊天</p>
         </div>
       </div>
 

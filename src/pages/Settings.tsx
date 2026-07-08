@@ -519,16 +519,18 @@ export default function Settings() {
               onClick={() => setShowAvatarModal(true)}
               className="relative group"
             >
-              <SafeImg
-                src={resolveStaticUrl(avatar)}
-                fallback={
-                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-3xl font-semibold border-4 border-gray-700">
-                    {initial}
-                  </div>
-                }
-                className="w-20 h-20 rounded-full object-cover border-4 border-gray-700"
-              />
-              <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/40 flex items-center justify-center transition-colors">
+              <div className="w-20 h-20 rounded-full overflow-hidden">
+                <SafeImg
+                  src={resolveStaticUrl(avatar)}
+                  fallback={
+                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-3xl font-semibold border-4 border-gray-700">
+                      {initial}
+                    </div>
+                  }
+                  className="w-20 h-20 object-cover border-4 border-gray-700"
+                />
+              </div>
+              <div className="absolute inset-0 rounded-full overflow-hidden bg-black/0 group-hover:bg-black/40 flex items-center justify-center transition-colors">
                 <Camera className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
             </button>

@@ -14,6 +14,7 @@ import Register from "@/pages/Register"
 import Friends from "@/pages/Friends"
 import Chat from "@/pages/Chat"
 import Settings from "@/pages/Settings"
+import About from "@/pages/About"
 import Moments from "@/pages/Moments"
 import CreatePost from "@/pages/CreatePost"
 import VipPlans from "@/pages/VipPlans"
@@ -229,6 +230,7 @@ export default function App() {
         <Route path="/chat/:friendId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
         <Route path="/group/:groupId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+        <Route path="/about" element={<ProtectedRoute><About /></ProtectedRoute>} />
         <Route path="/moments" element={<ProtectedRoute><Moments /></ProtectedRoute>} />
         <Route path="/moments/create" element={<ProtectedRoute><CreatePost /></ProtectedRoute>} />
         <Route path="/vip" element={<ProtectedRoute><VipPlans /></ProtectedRoute>} />

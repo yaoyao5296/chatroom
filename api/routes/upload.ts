@@ -46,7 +46,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB（0.5GB 内存下限制单个文件）
+    fileSize: 500 * 1024 * 1024, // 500MB（支持大视频上传）
   },
   fileFilter: (_req: any, file: any, cb: any) => {
     const allowedTypes = [
@@ -72,7 +72,7 @@ function uploadErrorHandler(err: any, req: Request, res: Response, next: NextFun
   if (err) {
     console.error('[upload error]', err.message || err)
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ success: false, error: '文件大小不能超过100MB' })
+      return res.status(400).json({ success: false, error: '文件大小不能超过500MB' })
     }
     return res.status(400).json({ success: false, error: err.message || '上传失败' })
   }
