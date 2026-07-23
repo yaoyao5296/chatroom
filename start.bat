@@ -1,0 +1,75 @@
+@echo off
+setlocal enabledelayedexpansion
+chcp 65001 >nul
+title ChatRoom 服务器
+
+echo ========================================
+echo   ChatRoom 网页版服务器
+echo ========================================
+echo.
+
+:: 检查 Node.js
+where node >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [错误] 未找到 Node.js，请先安装 Node.js 18+
+    echo 下载地址: https://nodejs.org
+    pause
+    exit /b 1
+)
+
+echo [1/3] 安装依赖...
+call npm install
+if %errorlevel% neq 0 (
+    echo [错误] 依赖安装失败
+    pause
+    exit /b 1
+)
+
+:: 检查 Python（AI 浏览器代理需要）
+where python3 >nul 2>&1 || where python >nul 2>&1
+if %errorlevel% equ 0 (
+    python3 -c "import browser_use" 2>nul || python -c "import browser_use" 2>nul
+    if %errorlevel% neq 0 (
+        echo [AI] 正在安装浏览器代理依赖...
+        pip install browser-use playwright 2>nul
+        playwright install chromium 2>nul
+    )
+    echo [AI] 浏览器代理模块已就绪
+) else (
+    echo [提示] 未找到 Python，AI 浏览器代理功能将不可用
+    echo 如需使用，请安装 Python 3.10+ 并运行:
+    echo   pip install browser-use playwright
+    echo   playwright install chromium
+)
+echo.
+echo [2/3] 构建前端...
+call npx vite build
+if %errorlevel% neq 0 (
+    echo [错误] 前端构建失败
+    pause
+    exit /b 1
+)
+
+echo.
+echo [3/3] 启动服务器...
+echo.
+echo ========================================
+echo   服务器启动中...
+echo   本机访问: http://localhost:3001
+echo   局域网访问: 请查看下方 IP 地址
+echo   按 Ctrl+C 停止服务器
+echo ========================================
+echo.
+
+:: 获取本机 IP
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
+    set LOCAL_IP=%%a
+    set LOCAL_IP=!LOCAL_IP: =!
+    echo   局域网地址: http://!LOCAL_IP!:3001
+)
+
+echo.
+set NODE_ENV=production
+node --env-file=.env --max-old-space-size=128 --optimize-for-size --max-semi-space-size=1 --initial-old-space-size=64 --import tsx api/server.ts
+
+pause

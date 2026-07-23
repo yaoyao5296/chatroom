@@ -1,0 +1,91 @@
+name: 打包桌面安装包
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:  # 也允许手动触发
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: 安装依赖
+        run: npm install
+
+      - name: 构建前端
+        run: npx vite build
+
+      - name: 打包 Windows 安装包
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win
+
+      - name: 上传安装包
+        uses: actions/upload-artifact@v5
+        with:
+          name: ChatRoom-Windows
+          path: release/*.exe
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: 安装依赖
+        run: npm install
+
+      - name: 构建前端
+        run: npx vite build
+
+      - name: 打包 Mac 安装包
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --mac
+
+      - name: 上传安装包
+        uses: actions/upload-artifact@v5
+        with:
+          name: ChatRoom-Mac
+          path: release/*.dmg
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: 安装依赖
+        run: npm install
+
+      - name: 构建前端
+        run: npx vite build
+
+      - name: 打包 Linux 安装包
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --linux
+
+      - name: 上传安装包
+        uses: actions/upload-artifact@v5
+        with:
+          name: ChatRoom-Linux
+          path: release/*.AppImage
