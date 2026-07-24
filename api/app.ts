@@ -198,6 +198,16 @@ if (fs.existsSync(uploadsPath)) {
   }))
 }
 
+// public 目录（下载页等静态资源）
+const publicPath = path.join(__dirname, '..', 'public')
+if (fs.existsSync(publicPath)) {
+  app.use(express.static(publicPath, {
+    maxAge: '1h',
+    etag: true,
+    lastModified: true,
+  }))
+}
+
 // ==================== 5) 生产环境托管前端构建产物 ====================
 if (process.env.NODE_ENV === 'production') {
   const distPath = path.join(__dirname, '..', 'dist')
