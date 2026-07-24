@@ -155,11 +155,17 @@ export default function Chat() {
     socket.on('new_message', handleNewMessage)
     socket.on('new_group_message', handleNewGroupMessage)
     socket.on('typing_status', handleTypingStatus)
+    socket.on('avatar_updated', (data: { userId: number; avatar: string }) => {
+      if (friend && friend.id === data.userId) {
+        setFriend((prev) => prev ? { ...prev, avatar: data.avatar } : null)
+      }
+    })
 
     return () => {
       socket.off('new_message', handleNewMessage)
       socket.off('new_group_message', handleNewGroupMessage)
       socket.off('typing_status', handleTypingStatus)
+      socket.off('avatar_updated')
     }
   }, [addMessage, addGroupMessage, setTypingUser])
 
@@ -530,7 +536,7 @@ export default function Chat() {
       </header>
 
       {/* Messages */}
-      <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3">
+      <div ref={messagesContainerRef} className="flex-1 min-h-0 overflow-y-auto px-4 pt-4 pb-0 space-y-3">
         {loading ? (
           <div className="space-y-4 pt-4">
             {[1, 2, 3].map((i) => (
@@ -702,7 +708,7 @@ export default function Chat() {
       </div>
 
       {/* Input */}
-      <div className="bg-[#1E293B] border-t border-gray-800 px-4 py-3">
+      <div className="bg-[#1E293B] border-t border-gray-800 px-4 py-0">
         {friend?.active === 0 && !isGroupMode ? (
           <div className="flex items-center gap-2 justify-center py-2">
             <Ban className="w-4 h-4 text-red-400/60" />
@@ -753,7 +759,7 @@ export default function Chat() {
               value={text}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              className="flex-1 px-4 py-2.5 bg-[#0F172A] border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+              className="flex-1 px-4 py-2 bg-[#0F172A] border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
               placeholder={isGroupMode ? '发送群消息...' : '输入消息...'}
               disabled={sending}
             />

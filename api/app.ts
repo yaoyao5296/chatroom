@@ -89,8 +89,6 @@ app.use((req: Request, res: Response, next) => {
 const rateLimitMap = new Map<string, { count: number; reset: number }>()
 const RATE_LIMIT_WINDOW = 60_000 // 1 分钟
 const RATE_LIMIT_MAX = 60 // 每分钟最多 60 次请求
-const RATE_LIMIT_AUTH_MAX = 10 // 登录/注册每分钟最多 10 次
-
 app.use((req: Request, res: Response, next) => {
   const key = req.ip || req.socket.remoteAddress || 'unknown'
   const now = Date.now()
@@ -98,9 +96,7 @@ app.use((req: Request, res: Response, next) => {
 
   if (entry && now < entry.reset) {
     entry.count++
-    const isAuth = req.path.startsWith('/api/auth/')
-    const max = isAuth ? RATE_LIMIT_AUTH_MAX : RATE_LIMIT_MAX
-    if (entry.count > max) {
+    if (entry.count > RATE_LIMIT_MAX) {
       res.status(429).json({ success: false, error: '请求过于频繁，请稍后再试' })
       return
     }

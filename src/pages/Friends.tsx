@@ -150,6 +150,11 @@ export default function Friends() {
     socket.on('group_created', () => loadGroups())
     socket.on('group_invitation', () => loadGroupInvitations())
     socket.on('unread_updated', () => loadUnread())
+    socket.on('avatar_updated', (data: { userId: number; avatar: string; username: string }) => {
+      setFriends((prev) => prev.map((f) =>
+        f.id === data.userId ? { ...f, avatar: data.avatar } : f
+      ))
+    })
     return () => {
       socket.off('friend_added')
       socket.off('friend_request')
@@ -157,6 +162,7 @@ export default function Friends() {
       socket.off('group_created')
       socket.off('group_invitation')
       socket.off('unread_updated')
+      socket.off('avatar_updated')
     }
   }, [loadFriends, loadFriendRequests, loadGroups, loadUnread])
 

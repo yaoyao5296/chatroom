@@ -191,7 +191,7 @@ export function emitToUser(userId: number, event: string, data: any): void {
   }
 }
 
-function broadcastToFriends(me: { id: number; username: string }, event: string, payload: any): void {
+export function broadcastToFriends(me: { id: number; username: string }, event: string, payload: any): void {
   const rows = stmtCache
     .get('SELECT friendId FROM friendships WHERE userId = ? UNION ALL SELECT userId FROM friendships WHERE friendId = ?')
     .all(me.id, me.id) as any[]

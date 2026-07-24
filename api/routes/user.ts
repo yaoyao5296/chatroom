@@ -4,6 +4,7 @@
 import { Router, type Request, type Response } from 'express'
 import db, { stmtCache } from '../db.js'
 import { authMiddleware } from '../middleware/auth.js'
+import { broadcastToFriends } from '../socket.js'
 
 const router = Router()
 
@@ -94,6 +95,13 @@ router.put('/me', authMiddleware, (req: Request, res: Response): void => {
       .get('UPDATE users SET username = ?, bio = ?, gender = ?, region = ?, avatar = ?, age = ? WHERE id = ?')
       .run(newUsername, newBio, newGender, newRegion, newAvatar, newAge, userId)
 
+    // 头像变更时实时同步到所有好友
+    if (avatar !== undefined && avatar !== cur.avatar) {
+      broadcastToFriends({ id: userId, username: newUsername }, 'avatar_updated', {
+        userId, avatar: newAvatar, username: newUsername,
+      })
+    }
+
     res.json({ success: true, user: { id: userId, username: newUsername, bio: newBio, gender: newGender, region: newRegion, avatar: newAvatar, age: newAge } })
   } catch (error: any) {
     console.error('[user-put]', error?.message || error)
@@ -137,6 +145,13 @@ router.put('/profile', authMiddleware, (req: Request, res: Response): void => {
       .get('UPDATE users SET username = ?, bio = ?, gender = ?, region = ?, avatar = ?, age = ? WHERE id = ?')
       .run(newUsername, newBio, newGender, newRegion, newAvatar, newAge, userId)
 
+    // 头像变更时实时同步到所有好友
+    if (avatar !== undefined && avatar !== cur.avatar) {
+      broadcastToFriends({ id: userId, username: newUsername }, 'avatar_updated', {
+        userId, avatar: newAvatar, username: newUsername,
+      })
+    }
+
     res.json({ success: true, user: { id: userId, username: newUsername, bio: newBio, gender: newGender, region: newRegion, avatar: newAvatar, age: newAge } })
   } catch (error: any) {
     console.error('[user-profile-put]', error?.message || error)
@@ -158,6 +173,12 @@ router.post('/avatar', authMiddleware, (req: Request, res: Response): void => {
     stmtCache
       .get('UPDATE users SET avatar = ? WHERE id = ?')
       .run(avatar, userId)
+
+    // 头像变更时实时同步到所有好友
+    const user = stmtCache.get('SELECT username FROM users WHERE id = ?').get(userId) as any
+    broadcastToFriends({ id: userId, username: user?.username || '' }, 'avatar_updated', {
+      userId, avatar, username: user?.username || '',
+    })
 
     res.json({ success: true, avatar })
   } catch (error: any) {
