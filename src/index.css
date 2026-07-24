@@ -53,6 +53,18 @@ body {
   }
 }
 
+/* 移动端底部安全区域适配 */
+.chat-input-area {
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+}
+
+/* 确保消息列表在移动端不被底部栏遮挡 */
+@media screen and (max-width: 768px) {
+  .chat-messages-container {
+    padding-bottom: 0 !important;
+  }
+}
+
 /* ============ AI 浏览器助手面板 ============ */
 .ai-panel {
   position: fixed;

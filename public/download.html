@@ -318,33 +318,13 @@
       <!-- 下载卡片 -->
       <div class="download-grid">
         <!-- Android APK -->
-        <a class="dl-card" href="/chatroom.apk" download>
+        <a class="dl-card" href="/ChatRoom.apk" download>
           <div class="scan-line"></div>
           <div class="icon-wrap">📱</div>
           <div class="name">Android</div>
           <div class="desc">手机直接安装</div>
           <div class="size" id="size-apk">计算中...</div>
           <span class="badge badge-rec">推荐</span>
-        </a>
-
-        <!-- Windows -->
-        <a class="dl-card" href="#">
-          <div class="scan-line"></div>
-          <div class="icon-wrap">🖥️</div>
-          <div class="name">Windows</div>
-          <div class="desc">桌面客户端</div>
-          <div class="size">即将上线</div>
-          <span class="badge badge-coming">开发中</span>
-        </a>
-
-        <!-- macOS -->
-        <a class="dl-card" href="#">
-          <div class="scan-line"></div>
-          <div class="icon-wrap">🍎</div>
-          <div class="name">macOS</div>
-          <div class="desc">桌面客户端</div>
-          <div class="size">即将上线</div>
-          <span class="badge badge-coming">开发中</span>
         </a>
 
         <!-- Web 版 -->
@@ -395,7 +375,7 @@
     // 获取APK文件大小
     (async function() {
       try {
-        const res = await fetch('/chatroom.apk', { method: 'HEAD' });
+        const res = await fetch('/ChatRoom.apk', { method: 'HEAD' });
         const size = res.headers.get('Content-Length');
         if (size) {
           const mb = (parseInt(size) / 1024 / 1024).toFixed(1);

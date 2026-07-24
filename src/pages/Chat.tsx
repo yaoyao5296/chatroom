@@ -708,7 +708,7 @@ export default function Chat() {
       </div>
 
       {/* Input */}
-      <div className="bg-[#1E293B] border-t border-gray-800 px-4 py-0">
+      <div className="bg-[#1E293B] border-t border-gray-800 px-4 py-0" style={{ paddingBottom: 'max(0px, env(safe-area-inset-bottom, 0px))' }}>
         {friend?.active === 0 && !isGroupMode ? (
           <div className="flex items-center gap-2 justify-center py-2">
             <Ban className="w-4 h-4 text-red-400/60" />
