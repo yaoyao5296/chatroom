@@ -35,9 +35,16 @@ export default function AIPanel({ onClose }: Props) {
     setLoading(true)
 
     const now = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-    setMessages((prev) => [...prev, { role: 'user', content: msg, time: now }])
+    const newMessages = [...messages, { role: 'user' as const, content: msg, time: now }]
+    setMessages(newMessages)
 
-    const result = await chatWithAI(msg)
+    // 构建历史上下文（最近10轮对话）
+    const history = newMessages.slice(0, -1).map(m => ({
+      role: m.role,
+      content: m.content,
+    }))
+
+    const result = await chatWithAI(msg, history)
     if (result.success && result.reply) {
       const replyTime = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
       setMessages((prev) => [...prev, { role: 'assistant', content: result.reply!, time: replyTime }])

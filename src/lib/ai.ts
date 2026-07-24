@@ -3,15 +3,27 @@
  * 通过 HTTP 调用 AI 聊天服务
  */
 
+interface ChatHistoryItem {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 /**
- * 发送消息给 AI 并获取回复
+ * 发送消息给 AI 并获取回复（支持上下文）
  */
-export async function chatWithAI(message: string): Promise<{ success: boolean; reply?: string; error?: string }> {
+export async function chatWithAI(
+  message: string,
+  history: ChatHistoryItem[] = []
+): Promise<{ success: boolean; reply?: string; error?: string }> {
   try {
     const resp = await fetch('/api/ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: message.trim() }),
+      body: JSON.stringify({
+        message: message.trim(),
+        history,
+        sessionId: 'ai-panel',
+      }),
     })
     const data = await resp.json()
     if (data.success && data.reply) {
