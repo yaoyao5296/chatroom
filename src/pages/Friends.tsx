@@ -6,7 +6,7 @@ import { useUnreadStore } from '@/store/unreadStore'
 import { api, resolveStaticUrl, type GroupInfo } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
 import SafeImg from '@/components/SafeImg'
-import { MessageCircle, LogOut, UserPlus, Search, Users, Camera, Trash2, X, Settings as SettingsIcon, Newspaper, Crown, Bell, Check, Plus, Shield, Clock, Info } from 'lucide-react'
+import { MessageCircle, LogOut, UserPlus, Search, Users, Camera, Trash2, X, Settings as SettingsIcon, Newspaper, Crown, Bell, Check, Plus, Shield, Clock, Info, Download } from 'lucide-react'
 import NotificationBell from '@/components/NotificationBell'
 
 interface Friend {
@@ -344,6 +344,14 @@ export default function Friends() {
               >
                 <Info className="w-5 h-5" />
               </button>
+              <a
+                href="/download.html"
+                target="_blank"
+                className="p-2 text-green-400 hover:text-green-300 hover:bg-gray-700 rounded-lg transition-colors"
+                title="下载手机APP"
+              >
+                <Download className="w-5 h-5" />
+              </a>
               <button
                 onClick={handleLogout}
                 className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"

@@ -290,7 +290,115 @@
     }
     .tips a:hover { color: var(--purple); }
 
+    /* 顶部导航 */
+    .top-nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 10;
+      padding: 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(10, 10, 15, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(56, 189, 248, 0.08);
+    }
+    .back-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #94A3B8;
+      text-decoration: none;
+      font-size: 0.9rem;
+      padding: 8px 14px;
+      border-radius: 10px;
+      transition: all 0.2s;
+      border: 1px solid rgba(148, 163, 184, 0.15);
+    }
+    .back-btn:hover {
+      color: #E2E8F0;
+      background: rgba(56, 189, 248, 0.08);
+      border-color: rgba(56, 189, 248, 0.3);
+    }
+    .top-nav .brand {
+      font-weight: 700;
+      font-size: 1rem;
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* 手机端下载横幅 */
+    .mobile-banner {
+      display: none;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      z-index: 10;
+      padding: 12px 16px;
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(20px);
+      border-top: 1px solid rgba(56, 189, 248, 0.15);
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .mobile-banner .banner-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+      min-width: 0;
+    }
+    .mobile-banner .banner-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .mobile-banner .banner-text {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .mobile-banner .banner-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #E2E8F0;
+    }
+    .mobile-banner .banner-sub {
+      font-size: 0.7rem;
+      color: #94A3B8;
+    }
+    .mobile-banner .banner-btn {
+      flex-shrink: 0;
+      padding: 8px 18px;
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      color: white;
+      border: none;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .mobile-banner .banner-btn:hover {
+      box-shadow: 0 0 20px var(--glow);
+      transform: scale(1.03);
+    }
+
     /* 响应式 */
+    @media (max-width: 768px) {
+      .mobile-banner { display: flex; }
+      .main { padding-top: 60px; padding-bottom: 80px; }
+    }
     @media (max-width: 480px) {
       .download-grid {
         grid-template-columns: 1fr;
@@ -302,6 +410,16 @@
   </style>
 </head>
 <body>
+  <!-- 顶部导航 -->
+  <nav class="top-nav">
+    <a href="/" class="back-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      返回聊天
+    </a>
+    <span class="brand">ChatRoom</span>
+    <span style="width:80px"></span>
+  </nav>
+
   <!-- 星空背景 -->
   <div class="stars" id="stars"></div>
   <div class="grid-bg"></div>
@@ -351,6 +469,18 @@
         </p>
       </div>
     </div>
+  </div>
+
+  <!-- 手机端底部下载横幅 -->
+  <div class="mobile-banner">
+    <div class="banner-info">
+      <div class="banner-icon">💬</div>
+      <div class="banner-text">
+        <span class="banner-title">ChatRoom App</span>
+        <span class="banner-sub">随时随地，畅快聊天</span>
+      </div>
+    </div>
+    <a class="banner-btn" href="/ChatRoom.apk" download>立即下载</a>
   </div>
 
   <script>
