@@ -191,7 +191,7 @@ export const api = {
   },
 
   login(loginId: string, password: string) {
-    return request<{ success: boolean; user: { id: number; username: string; avatar?: string; vip?: number }; token: string }>('/auth/login', {
+    return request<{ success: boolean; user: { id: number; username: string; avatar?: string; vip?: number; isOfficial?: number }; token: string }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ loginId, password }),
     })
@@ -199,7 +199,7 @@ export const api = {
 
   // 人脸登录（用户可选填用户名，不填则全库匹配）
   loginWithFace(faceDescriptor: number[], username?: string) {
-    return request<{ success: boolean; score?: number; user: { id: number; username: string; avatar?: string; vip?: number }; token: string }>('/auth/face/login', {
+    return request<{ success: boolean; score?: number; user: { id: number; username: string; avatar?: string; vip?: number; isOfficial?: number }; token: string }>('/auth/face/login', {
       method: 'POST',
       body: JSON.stringify({ username, faceDescriptor: faceDescriptor.join(',') }),
     })
@@ -257,6 +257,7 @@ export const api = {
         region: string
         age: number
         vip: number
+        isOfficial: number
       }
     }>('/user/profile')
   },

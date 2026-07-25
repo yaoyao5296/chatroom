@@ -29,11 +29,20 @@ SYSTEM_PROMPT = (
     '请用自然流畅的中文回复用户。'
     '回答风格：简洁直接，像朋友聊天一样自然，不要啰嗦。'
     '尽量保持回复在300字以内。'
-    '重要：当用户的问题涉及实时信息、新闻、天气、最新数据等需要联网查询的内容时，'
-    '请在你的回复末尾添加一个特殊标记 [SEARCH:关键词]，'
-    '系统会自动执行搜索并将结果反馈给你。'
-    '例如：用户问"今天天气怎么样"，你可以回复"让我帮你查一下天气 [SEARCH:北京今天天气]"'
-    '如果用户没有要求联网搜索，正常回答即可。'
+    ''
+    '【重要规则 - 必须遵守】'
+    '当用户的问题涉及以下内容时，你绝对不能直接说"我无法获取"或"我不知道"，'
+    '而是必须输出 [SEARCH:关键词] 标记来触发联网搜索：'
+    '- 实时天气、天气预报'
+    '- 新闻、时事'
+    '- 股价、汇率等金融数据'
+    '- 任何需要最新信息的问题'
+    ''
+    '格式要求：你的回复末尾必须包含 [SEARCH:搜索关键词]'
+    '例如：用户问"今天湖南天气怎么样"，你必须回复类似：'
+    '"让我帮你查一下湖南今天的天气情况 [SEARCH:湖南长沙天气 2025年7月]"'
+    ''
+    '注意：如果你不确定答案，不要直接说不知道，而是使用 [SEARCH:xxx] 来搜索。'
 )
 
 # 对话历史存储（按会话ID，最多保留最近20轮）
@@ -43,58 +52,96 @@ MAX_HISTORY = 20
 
 def web_search(query: str, max_results: int = 5) -> str:
     """联网搜索，返回格式化的搜索结果"""
-    try:
-        from duckduckgo_search import DDGS
-        results = []
-        with DDGS() as ddgs:
-            for r in ddgs.text(query, max_results=max_results):
-                results.append(f"【{r['title']}】\n{r['body']}\n链接: {r['href']}")
-        if not results:
-            return "未找到相关搜索结果"
-        return "\n\n".join(results)
-    except Exception as e:
-        logger.error(f'搜索失败: {e}')
-        # 降级：使用 requests 直接请求 DuckDuckGo
+    import urllib.request
+    import urllib.parse
+
+    def _fetch(url: str, headers: dict = None) -> str:
+        req = urllib.request.Request(url, headers=headers or {})
         try:
-            import requests
-            resp = requests.get(
-                'https://lite.duckduckgo.com/lite/',
-                params={'q': query},
-                headers={'User-Agent': 'Mozilla/5.0'},
-                timeout=10
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return resp.read().decode('utf-8', errors='replace')
+        except Exception as e:
+            raise RuntimeError(f'请求失败: {e}')
+
+    def _try_ddg_lite(q: str) -> str:
+        """DuckDuckGo Lite HTML 搜索"""
+        encoded = urllib.parse.quote(q)
+        url = f'https://lite.duckduckgo.com/lite/?q={encoded}'
+        html = _fetch(url, {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'})
+        from html.parser import HTMLParser
+        class Parser(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.results = []
+                self._cur = None
+                self._tag = None
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == 'a' and 'result-link' in attrs.get('class', ''):
+                    self._cur = {'title': '', 'snippet': '', 'href': attrs.get('href', '')}
+                    self._tag = 'a'
+                elif tag == 'td' and 'result-snippet' in attrs.get('class', ''):
+                    self._tag = 'td'
+            def handle_endtag(self, tag):
+                if tag == 'a' and self._tag == 'a':
+                    self._tag = None
+                elif tag == 'td' and self._tag == 'td':
+                    self._tag = None
+            def handle_data(self, data):
+                if self._tag == 'a' and self._cur:
+                    self._cur['title'] += data.strip()
+                elif self._tag == 'td' and self._cur:
+                    self._cur['snippet'] += data.strip()
+                    if self._cur['title'] and self._cur not in self.results:
+                        self.results.append(dict(self._cur))
+                        self._cur = None
+        parser = Parser()
+        parser.feed(html)
+        if parser.results:
+            return "\n\n".join(
+                f"【{r['title']}】\n{r['snippet']}\n链接: {r['href']}"
+                for r in parser.results[:max_results]
             )
-            from html.parser import HTMLParser
-            class ResultParser(HTMLParser):
-                def __init__(self):
-                    super().__init__()
-                    self.results = []
-                    self.current = {}
-                    self.in_link = False
-                    self.in_snippet = False
-                def handle_starttag(self, tag, attrs):
-                    attrs = dict(attrs)
-                    if tag == 'a' and 'result-link' in attrs.get('class', ''):
-                        self.in_link = True
-                        self.current = {'title': '', 'snippet': '', 'href': attrs.get('href', '')}
-                    elif tag == 'td' and 'result-snippet' in attrs.get('class', ''):
-                        self.in_snippet = True
-                def handle_endtag(self, tag):
-                    if tag == 'a': self.in_link = False
-                    if tag == 'td': self.in_snippet = False
-                def handle_data(self, data):
-                    if self.in_link:
-                        self.current['title'] += data.strip()
-                    elif self.in_snippet:
-                        self.current['snippet'] += data.strip()
-                        if self.current.get('title') and not any(r['title'] == self.current['title'] for r in self.results):
-                            self.results.append(dict(self.current))
-            parser = ResultParser()
-            parser.feed(resp.text)
-            if parser.results:
-                return "\n\n".join(f"【{r['title']}】\n{r['snippet']}\n链接: {r['href']}" for r in parser.results[:max_results])
-            return "未找到相关搜索结果"
-        except Exception as e2:
-            return f"搜索失败: {str(e2)}"
+        return ""
+
+    # 依次尝试多种搜索方式
+    result = ""
+    try:
+        result = _try_ddg_lite(query)
+    except Exception as e:
+        logger.warning(f'DDG搜索失败: {e}')
+
+    if result:
+        return result
+
+    # 降级：使用 Bing 搜索
+    logger.info(f'尝试 Bing 搜索: {query}')
+    try:
+        encoded = urllib.parse.quote(query)
+        url = f'https://www.bing.com/search?q={encoded}&setlang=zh-cn'
+        html = _fetch(url, {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+        })
+        # 简单提取搜索结果
+        import re as _re
+        import html as _html
+        snippets = _re.findall(r'<li class="b_algo"[^>]*>.*?<h2[^>]*>.*?<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>.*?<p[^>]*>(.*?)</p>', html, _re.DOTALL)
+        if snippets:
+            logger.info(f'Bing 搜索匹配到 {len(snippets)} 条结果')
+            lines = []
+            for href, title, snippet in snippets[:max_results]:
+                title = _html.unescape(_re.sub(r'<[^>]+>', '', title)).strip()
+                snippet = _html.unescape(_re.sub(r'<[^>]+>', '', snippet)).strip()
+                lines.append(f"【{title}】\n{snippet}\n链接: {href}")
+            if lines:
+                return "\n\n".join(lines)
+        else:
+            logger.warning(f'Bing 搜索未匹配到结果')
+    except Exception as e:
+        logger.warning(f'Bing搜索失败: {e}')
+
+    return "未找到相关搜索结果，请稍后重试。"
 
 
 def call_ai(messages: list[dict], max_tokens: int = 800) -> str:
@@ -202,6 +249,9 @@ class ChatHandler(BaseHTTPRequestHandler):
                     })
                     reply = call_ai(messages, max_tokens=1000)
                     logger.info(f'搜索后回复: {reply[:80]}...')
+
+                # 清理最终回复中的 [SEARCH:xxx] 标记
+                reply = re.sub(r'\s*\[SEARCH:.+?\]', '', reply).strip()
 
                 # 保存会话历史
                 if session_id not in chat_sessions:

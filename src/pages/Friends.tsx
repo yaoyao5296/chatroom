@@ -112,19 +112,21 @@ export default function Friends() {
     }
   }, [])
 
-  const checkVipStatus = useCallback(async () => {
+  const refreshUserInfo = useCallback(async () => {
     try {
-      const res = await api.getVipStatus()
-      // 更新 VIP 状态到 localStorage
-      const userInfo = updateUserInfo()
-      if (userInfo) {
-        userInfo.vip = res.vip
-        localStorage.setItem('user', JSON.stringify(userInfo))
-      }
-      // 同步更新 Zustand store 触发重渲染
-      const currentStoreUser = useAuthStore.getState().user
-      if (currentStoreUser) {
-        useAuthStore.setState({ user: { ...currentStoreUser, vip: res.vip } })
+      const res = await api.getProfile()
+      if (res.success && res.user) {
+        const { vip, isOfficial } = res.user
+        const userInfo = updateUserInfo()
+        if (userInfo) {
+          userInfo.vip = vip
+          userInfo.isOfficial = isOfficial
+          localStorage.setItem('user', JSON.stringify(userInfo))
+        }
+        const currentStoreUser = useAuthStore.getState().user
+        if (currentStoreUser) {
+          useAuthStore.setState({ user: { ...currentStoreUser, vip, isOfficial } })
+        }
       }
     } catch {}
   }, [updateUserInfo])
@@ -134,9 +136,9 @@ export default function Friends() {
     loadFriendRequests()
     loadGroups()
     loadGroupInvitations()
-    checkVipStatus()
+    refreshUserInfo()
     loadUnread()
-  }, [loadFriends, loadFriendRequests, loadGroups, checkVipStatus, loadUnread])
+  }, [loadFriends, loadFriendRequests, loadGroups, refreshUserInfo, loadUnread])
 
   useEffect(() => {
     const socket = getSocket()

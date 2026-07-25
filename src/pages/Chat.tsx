@@ -19,6 +19,7 @@ export default function Chat() {
   const [text, setText] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [socketError, setSocketError] = useState('')
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null)
   const [groupMembers, setGroupMembers] = useState<Array<{ id: number; username: string; avatar: string; role: string }>>([])
   const [showAddMemberModal, setShowAddMemberModal] = useState(false)
@@ -36,6 +37,8 @@ export default function Chat() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
+  const textRef = useRef('')
+  const sendingRef = useRef(false)
 
   const user = useAuthStore((s) => s.user)
   const messages = useChatStore((s) => s.messages)
@@ -161,11 +164,19 @@ export default function Chat() {
       }
     })
 
+
+    const handleSocketError = (data: { message: string }) => {
+      setSocketError(data.message || '发送失败')
+      setTimeout(() => setSocketError(''), 3000)
+    }
+    socket.on('error', handleSocketError)
+
     return () => {
       socket.off('new_message', handleNewMessage)
       socket.off('new_group_message', handleNewGroupMessage)
       socket.off('typing_status', handleTypingStatus)
       socket.off('avatar_updated')
+      socket.off('error', handleSocketError)
     }
   }, [addMessage, addGroupMessage, setTypingUser])
 
@@ -200,39 +211,39 @@ export default function Chat() {
   }, [])
 
   const handleSend = useCallback(async () => {
-    if (!text.trim() || sending) return
+    const currentText = textRef.current.trim()
+    if (!currentText || sendingRef.current) return
 
+    sendingRef.current = true
     setSending(true)
-    const content = text.trim()
     setText('')
-
-    if (isGroupMode) {
-      const socket = getSocket()
-      if (socket) {
-        socket.emit('send_group_message', {
-          groupId: Number(groupId),
-          content,
-          type: 'text',
-        })
-      }
-      setSending(false)
-      return
-    }
 
     const socket = getSocket()
     if (!socket) {
+      setSocketError('消息发送失败：未连接到服务器，请刷新页面重试')
+      sendingRef.current = false
       setSending(false)
+      setText(currentText) // 恢复文本
       return
     }
 
-    socket.emit('send_message', {
-      receiverId: fid,
-      content,
-      type: 'text',
-    })
+    if (isGroupMode) {
+      socket.emit('send_group_message', {
+        groupId: Number(groupId),
+        content: currentText,
+        type: 'text',
+      })
+    } else {
+      socket.emit('send_message', {
+        receiverId: fid,
+        content: currentText,
+        type: 'text',
+      })
+    }
 
+    sendingRef.current = false
     setSending(false)
-  }, [text, sending, fid, isGroupMode, groupId])
+  }, [fid, isGroupMode, groupId])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -243,7 +254,9 @@ export default function Chat() {
 
   // 发送正在输入状态（普通聊天模式）
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setText(e.target.value)
+    const val = e.target.value
+    setText(val)
+    textRef.current = val
 
     if (isGroupMode) return // 群聊模式不发送 typing 事件
 
@@ -707,8 +720,13 @@ export default function Chat() {
         <div ref={messagesEndRef} />
       </div>
 
+      {socketError && (
+        <div className="bg-red-500/20 border-t border-red-500/30 px-4 py-2 text-center">
+          <p className="text-sm text-red-400">{socketError}</p>
+        </div>
+      )}
       {/* Input */}
-      <div className="bg-[#1E293B] border-t border-gray-800 px-4 py-0" style={{ paddingBottom: 'max(0px, env(safe-area-inset-bottom, 0px))' }}>
+      <div className="bg-[#1E293B] border-t border-gray-800 px-4 py-0" style={{ paddingBottom: 'max(60px, env(safe-area-inset-bottom, 60px))' }}>
         {friend?.active === 0 && !isGroupMode ? (
           <div className="flex items-center gap-2 justify-center py-2">
             <Ban className="w-4 h-4 text-red-400/60" />
@@ -767,7 +785,7 @@ export default function Chat() {
             <button
               onClick={handleSend}
               disabled={!text.trim() || sending}
-              className="p-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white rounded-xl transition-colors"
+              className="p-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed text-white rounded-xl transition-colors"
             >
               <Send className="w-5 h-5" />
             </button>
