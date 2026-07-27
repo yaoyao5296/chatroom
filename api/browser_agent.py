@@ -6,6 +6,13 @@ import os, json, time, logging, socket, socketserver, re
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
+# 使用 requests 库（更稳定，支持代理绕过）
+try:
+    import requests as _requests
+    _HAS_REQUESTS = True
+except ImportError:
+    _HAS_REQUESTS = False
+
 # 读取 .env 文件
 env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
 if os.path.exists(env_file):
@@ -30,19 +37,10 @@ SYSTEM_PROMPT = (
     '回答风格：简洁直接，像朋友聊天一样自然，不要啰嗦。'
     '尽量保持回复在300字以内。'
     ''
-    '【重要规则 - 必须遵守】'
-    '当用户的问题涉及以下内容时，你绝对不能直接说"我无法获取"或"我不知道"，'
-    '而是必须输出 [SEARCH:关键词] 标记来触发联网搜索：'
-    '- 实时天气、天气预报'
-    '- 新闻、时事'
-    '- 股价、汇率等金融数据'
-    '- 任何需要最新信息的问题'
-    ''
-    '格式要求：你的回复末尾必须包含 [SEARCH:搜索关键词]'
-    '例如：用户问"今天湖南天气怎么样"，你必须回复类似：'
-    '"让我帮你查一下湖南今天的天气情况 [SEARCH:湖南长沙天气 2025年7月]"'
-    ''
-    '注意：如果你不确定答案，不要直接说不知道，而是使用 [SEARCH:xxx] 来搜索。'
+    '【重要规则】'
+    '如果系统消息中提供了联网搜索结果，你必须基于搜索结果来回答用户问题，'
+    '并在回复中引用搜索到的具体信息（如温度、事件、数据等）。'
+    '如果系统没有提供搜索结果，则按你的知识正常回答，但不要编造实时数据。'
 )
 
 # 对话历史存储（按会话ID，最多保留最近20轮）
@@ -62,6 +60,48 @@ def web_search(query: str, max_results: int = 5) -> str:
                 return resp.read().decode('utf-8', errors='replace')
         except Exception as e:
             raise RuntimeError(f'请求失败: {e}')
+
+    # 天气查询直接使用 wttr.in API
+    if re.search(r'天气|气温|多少度|几度|下雨|刮风|台风|暴雨|晴朗|阴天|多云|温度|湿度|风速', query):
+        import re as _re
+        city_match = _re.search(r'(长沙|北京|上海|广州|深圳|杭州|成都|武汉|南京|重庆|西安|天津|苏州|郑州|青岛|大连|厦门|昆明|哈尔滨|沈阳|合肥|济南|福州|南昌|南宁|贵阳|海口|石家庄|太原|呼和浩特|拉萨|银川|兰州|西宁|乌鲁木齐|湖南|湖北|广东|浙江|江苏|四川)', query)
+        city = city_match.group(1) if city_match else 'Beijing'
+        weather_url = f'https://wttr.in/{urllib.parse.quote(city)}?format=j1'
+        # 重试3次（代理环境 SSL 可能不稳定）
+        for attempt in range(3):
+            try:
+                if _HAS_REQUESTS:
+                    resp = _requests.get(weather_url, timeout=15)
+                    weather_json = resp.json()
+                else:
+                    weather_data = _fetch(weather_url)
+                    weather_json = json.loads(weather_data)
+                current = weather_json['current_condition'][0]
+                result = (
+                    f'【{city}实时天气】\n'
+                    f'温度: {current["temp_C"]}°C (体感 {current["FeelsLikeC"]}°C)\n'
+                    f'天气: {current["weatherDesc"][0]["value"]}\n'
+                    f'湿度: {current["humidity"]}%\n'
+                    f'风速: {current["windspeedKmph"]} km/h\n'
+                    f'能见度: {current["visibility"]} km\n'
+                    f'紫外线指数: {current["uvIndex"]}'
+                )
+                forecast = weather_json.get('weather', [])
+                if forecast:
+                    result += '\n\n【未来天气】\n'
+                    for day in forecast[:3]:
+                        date = day['date']
+                        max_t = day['maxtempC']
+                        min_t = day['mintempC']
+                        desc = day['hourly'][4]['weatherDesc'][0]['value']
+                        result += f'{date}: {desc} {min_t}°C ~ {max_t}°C\n'
+                return result
+            except Exception as e:
+                if attempt < 2:
+                    logger.warning(f'wttr.in 第{attempt+1}次失败: {e}，1秒后重试...')
+                    time.sleep(1)
+                else:
+                    logger.warning(f'wttr.in天气查询失败: {e}，降级到普通搜索')
 
     def _try_ddg_lite(q: str) -> str:
         """DuckDuckGo Lite HTML 搜索"""
@@ -165,6 +205,25 @@ def call_ai(messages: list[dict], max_tokens: int = 800) -> str:
         raise RuntimeError(f'AI API 调用失败: {e}')
 
 
+# 需要联网搜索的关键词模式
+SEARCH_PATTERNS = [
+    r'天气', r'气温', r'多少度', r'几度', r'温度', r'下雨', r'刮风', r'台风', r'暴雨', r'晴朗',
+    r'新闻', r'最新', r'今天', r'昨天', r'本周', r'最近',
+    r'股价', r'股票', r'汇率', r'美元', r'人民币', r'黄金', r'比特币',
+    r'比赛', r'比分', r'赛事', r'直播',
+    r'疫情', r'政策', r'发布', r'公告',
+    r'现在', r'当前', r'实时',
+]
+
+def needs_search(message: str) -> bool:
+    """检测消息是否需要联网搜索"""
+    import re
+    for pattern in SEARCH_PATTERNS:
+        if re.search(pattern, message):
+            return True
+    return False
+
+
 class ChatHandler(BaseHTTPRequestHandler):
     def log_message(self, f, *a):
         pass
@@ -231,27 +290,38 @@ class ChatHandler(BaseHTTPRequestHandler):
             logger.info(f'收到消息: {message[:50]}... (历史{len(history)}轮)')
 
             try:
-                reply = call_ai(messages)
-                logger.info(f'回复: {reply[:80]}...')
+                # 服务端检测是否需要联网搜索
+                if needs_search(message):
+                    logger.info(f'服务端触发联网搜索: {message[:50]}')
+                    search_results = web_search(message)
+                    logger.info(f'搜索结果长度: {len(search_results)}')
 
-                # 检测是否需要联网搜索
-                search_match = re.search(r'\[SEARCH:(.+?)\]', reply)
-                if search_match:
-                    search_query = search_match.group(1).strip()
-                    logger.info(f'触发联网搜索: {search_query}')
-                    search_results = web_search(search_query)
-
-                    # 将搜索结果追加到消息中，再次调用AI
-                    messages.append({'role': 'assistant', 'content': reply})
+                    # 将搜索结果作为系统消息注入
                     messages.append({
                         'role': 'system',
-                        'content': f'以下是关于"{search_query}"的联网搜索结果，请基于这些信息给出准确回答:\n\n{search_results}'
+                        'content': f'以下是与用户问题相关的联网搜索结果，请基于这些信息给出准确、具体的回答（引用搜索到的数据）:\n\n{search_results}'
                     })
                     reply = call_ai(messages, max_tokens=1000)
-                    logger.info(f'搜索后回复: {reply[:80]}...')
+                else:
+                    reply = call_ai(messages)
+                    # 兼容旧的 [SEARCH:xxx] 标记检测
+                    search_match = re.search(r'\[SEARCH:(.+?)\]', reply)
+                    if search_match:
+                        search_query = search_match.group(1).strip()
+                        logger.info(f'AI触发联网搜索: {search_query}')
+                        search_results = web_search(search_query)
+
+                        messages.append({'role': 'assistant', 'content': reply})
+                        messages.append({
+                            'role': 'system',
+                            'content': f'以下是与"{search_query}"相关的联网搜索结果，请基于这些信息给出准确回答:\n\n{search_results}'
+                        })
+                        reply = call_ai(messages, max_tokens=1000)
 
                 # 清理最终回复中的 [SEARCH:xxx] 标记
                 reply = re.sub(r'\s*\[SEARCH:.+?\]', '', reply).strip()
+
+                logger.info(f'最终回复: {reply[:80]}...')
 
                 # 保存会话历史
                 if session_id not in chat_sessions:

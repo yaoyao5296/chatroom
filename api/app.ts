@@ -88,9 +88,11 @@ app.use((req: Request, res: Response, next) => {
 // ==================== 2.5) 速率限制（防暴力破解） ====================
 const rateLimitMap = new Map<string, { count: number; reset: number }>()
 const RATE_LIMIT_WINDOW = 60_000 // 1 分钟
-const RATE_LIMIT_MAX = 60 // 每分钟最多 60 次请求
+const RATE_LIMIT_MAX = 3000 // 每分钟最多 3000 次请求（代理环境所有用户共享 IP）
 app.use((req: Request, res: Response, next) => {
-  const key = req.ip || req.socket.remoteAddress || 'unknown'
+  // 优先使用 X-Forwarded-For 获取真实客户端 IP（代理环境）
+  const forwarded = req.headers['x-forwarded-for']
+  const key = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : '') || req.ip || req.socket.remoteAddress || 'unknown'
   const now = Date.now()
   const entry = rateLimitMap.get(key)
 
@@ -213,9 +215,14 @@ if (process.env.NODE_ENV === 'production') {
   const distPath = path.join(__dirname, '..', 'dist')
   if (fs.existsSync(distPath)) {
     app.use(express.static(distPath, {
-      maxAge: '1h',
-      etag: true,
+      maxAge: 0,
+      etag: false,
       index: 'index.html',
+      setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+        res.setHeader('Pragma', 'no-cache')
+        res.setHeader('Expires', '0')
+      }
     }))
   }
 }
@@ -283,6 +290,16 @@ app.use('/api/health', (_req: Request, res: Response) => {
 app.use((error: Error, _req: Request, res: Response, _next: any): void => {
   console.error('[server-error]', error.message)
   res.status(500).json({ success: false, error: '服务器内部错误' })
+})
+
+// ==================== 8) 下载页快捷路由（必须在 SPA fallback 之前） ====================
+app.get('/download', (_req: Request, res: Response) => {
+  const dlPath = path.join(__dirname, '..', 'dist', 'download.html')
+  if (fs.existsSync(dlPath)) {
+    res.sendFile(dlPath)
+  } else {
+    res.redirect('/download.html')
+  }
 })
 
 // ==================== 9) 生产环境 SPA fallback ====================
