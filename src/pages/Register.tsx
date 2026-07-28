@@ -60,7 +60,7 @@ export default function Register() {
         setError(`验证码：${res.code}（邮件发送受限，已自动填入）`)
         setCode(res.code)
       } else if (!res.sent) {
-        setError('邮件服务未配置，验证码已在服务器控制台输出')
+        setError('邮件发送失败，请稍后重试或联系管理员')
       } else {
         startCountdown()
       }

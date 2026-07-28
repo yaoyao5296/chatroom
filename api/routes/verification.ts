@@ -3,10 +3,11 @@
  */
 import { Router, type Request, type Response } from 'express'
 import { stmtCache } from '../db.js'
+import { sendVerificationEmail } from '../services/email.js'
 
 const router = Router()
 
-router.post('/send', (req: Request, res: Response): void => {
+router.post('/send', async (req: Request, res: Response): Promise<void> => {
   try {
     const { target } = req.body as { target?: string }
     if (!target) {
@@ -14,7 +15,7 @@ router.post('/send', (req: Request, res: Response): void => {
       return
     }
 
-    // 6 位数字验证码（开发模式直接返回）
+    // 6 位数字验证码
     const code = Math.floor(100000 + Math.random() * 900000).toString()
     const now = new Date()
     const expires = new Date(now.getTime() + 10 * 60 * 1000) // 10 分钟
@@ -24,10 +25,20 @@ router.post('/send', (req: Request, res: Response): void => {
       .get('INSERT INTO verification_codes (target, code, expiresAt, type) VALUES (?, ?, ?, ?)')
       .run(target, code, isoExpires, 'register')
 
+    // 判断是邮箱还是手机号
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)
+    let sent = false
+
+    if (isEmail) {
+      sent = await sendVerificationEmail(target, code)
+    }
+
+    const isDev = process.env.NODE_ENV !== 'production'
     res.json({
       success: true,
-      message: '验证码已发送',
-      ...(process.env.NODE_ENV !== 'production' ? { code } : {}),
+      sent: isEmail ? sent : true,
+      message: sent ? '验证码已发送' : '验证码已生成',
+      ...(isDev ? { code } : {}),
     })
   } catch (error: any) {
     console.error('[verify-send]', error?.message || error)
