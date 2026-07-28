@@ -4,21 +4,35 @@
 services:
   - type: web
     name: chatroom-api
-    env: node
-    rootDir: .
-    buildCommand: npm install
-    startCommand: node --max-old-space-size=384 --optimize-for-size --max-semi-space-size=2 --initial-old-space-size=128 --import tsx api/server.ts
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node --max-old-space-size=128 --optimize-for-size --import tsx api/server.ts
     healthCheckPath: /api/health
     envVars:
+      - key: NODE_ENV
+        value: production
       - key: NODE_VERSION
         value: 20.0.0
       - key: PORT
         value: "3001"
-      - key: DEEPSEEK_API_KEY
-        sync: false
       - key: JWT_SECRET
         generateValue: true
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: CLOUDINARY_URL
+        sync: false
+      - key: MAIL_HOST
+        sync: false
+      - key: MAIL_PORT
+        sync: false
+      - key: MAIL_USER
+        sync: false
+      - key: MAIL_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false
     disk:
       name: chatroom-data
-      mountPath: /opt/render/project/src
+      mountPath: /opt/render/project/src/data
       sizeGB: 1
