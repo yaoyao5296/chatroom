@@ -7,7 +7,7 @@
 import { isAndroid, isNativeApp } from './platform'
 
 // 服务器地址：新服务器 IP
-const IPV4_BASE = 'http://8.163.85.218:3001/api'
+const IPV4_BASE = 'http://8.163.56.203:3001/api'
 const IPV6_BASE = '' // 暂不使用 IPv6
 
 // Android 原生客户端：连接到本地运行的 Express 服务器（adb reverse 或局域网 IP）
