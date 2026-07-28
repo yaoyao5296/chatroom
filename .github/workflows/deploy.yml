@@ -22,7 +22,6 @@ jobs:
             git reset --hard origin/master
             npm install --ignore-scripts
             npm rebuild better-sqlite3 sharp
-            npx vite build
             fuser -k 3001/tcp 2>/dev/null || true
             sleep 2
             pm2 delete chatroom 2>/dev/null || true
