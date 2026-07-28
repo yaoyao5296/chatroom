@@ -294,11 +294,15 @@ app.use((error: Error, _req: Request, res: Response, _next: any): void => {
 
 // ==================== 8) 下载页快捷路由（必须在 SPA fallback 之前） ====================
 app.get('/download', (_req: Request, res: Response) => {
-  const dlPath = path.join(__dirname, '..', 'dist', 'download.html')
-  if (fs.existsSync(dlPath)) {
-    res.sendFile(dlPath)
+  // 优先从 dist 目录读取（构建后），其次从 public 目录读取
+  const distDlPath = path.join(__dirname, '..', 'dist', 'download.html')
+  const publicDlPath = path.join(__dirname, '..', 'public', 'download.html')
+  if (fs.existsSync(distDlPath)) {
+    res.sendFile(distDlPath)
+  } else if (fs.existsSync(publicDlPath)) {
+    res.sendFile(publicDlPath)
   } else {
-    res.redirect('/download.html')
+    res.status(404).type('html').send('<h1>下载页面不存在</h1><p>请先运行 npx vite build 构建前端</p>')
   }
 })
 
