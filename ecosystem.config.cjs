@@ -39,6 +39,10 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       PORT: 3001,
+      // JWT 密钥
+      JWT_SECRET: 'sxx0425',
+      // Redis 在线状态
+      REDIS_URL: 'redis://127.0.0.1:6379',
       // 邮箱配置
       MAIL_HOST: 'smtp.163.com',
       MAIL_PORT: '465',
