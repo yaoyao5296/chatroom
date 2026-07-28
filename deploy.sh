@@ -6,7 +6,7 @@
 set -e
 
 # ========== 配置项（按需修改）==========
-SERVER_IP="YOUR_SERVER_IP"    # ← 改成你的服务器 IP 或域名
+SERVER_IP="8.163.56.203"    # 服务器 IP
 SSH_PORT=22                   # SSH 端口
 SSH_USER="root"               # SSH 用户名
 
