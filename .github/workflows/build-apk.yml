@@ -47,3 +47,21 @@ jobs:
         with:
           name: ChatRoom-APK
           path: ChatRoom.apk
+
+      - name: 部署 APK 到服务器
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 8.163.56.203
+          username: root
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: mkdir -p /opt/chatroom/public
+
+      - name: 上传 APK 到服务器
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: 8.163.56.203
+          username: root
+          password: ${{ secrets.SERVER_PASSWORD }}
+          source: ChatRoom.apk
+          target: /opt/chatroom/public/
+          strip_components: 0
