@@ -7,7 +7,7 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install && npm run build
-    startCommand: node --max-old-space-size=128 --optimize-for-size --import tsx api/server.ts
+    startCommand: node --max-old-space-size=192 --optimize-for-size --import tsx api/server.ts
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
