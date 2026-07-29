@@ -1,0 +1,51 @@
+name: Start Server
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 8.163.56.203
+          username: root
+          password: ${{ secrets.SERVER_PASSWORD }}
+          command_timeout: 3m
+          script: |
+            cd /opt/chatroom
+            git remote set-url origin https://github.com/yaoyao5296/chatroom.git
+            git fetch origin
+            git reset --hard origin/master
+            
+            # 杀掉所有相关进程
+            fuser -k 3001/tcp 2>/dev/null || true
+            pm2 delete chatroom 2>/dev/null || true
+            pkill -f "tsx api/server" 2>/dev/null || true
+            sleep 2
+            
+            # 直接用 nohup 启动，设置环境变量
+            export NODE_ENV=production
+            export PORT=3001
+            export JWT_SECRET=sxx0425
+            export REDIS_URL=redis://127.0.0.1:6379
+            export MAIL_HOST=smtp.163.com
+            export MAIL_PORT=465
+            export MAIL_USER=13574196538@163.com
+            export MAIL_PASS=FAU8m36uQ8PunQ8P
+            export MAIL_FROM=13574196538@163.com
+            export DATABASE_URL=./data/chatroom.db
+            export NODE_OPTIONS="--max-old-space-size=128 --optimize-for-size --max-semi-space-size=1 --initial-old-space-size=64"
+            
+            nohup node --import tsx api/server.ts > logs/server.log 2>&1 &
+            echo "PID: $!"
+            
+            sleep 8
+            echo "=== Health Check ==="
+            curl -s -o /dev/null -w "HTTP: %{http_code}\n" http://localhost:3001/api/health
+            echo "=== Server Log ==="
+            tail -20 logs/server.log 2>/dev/null || true
