@@ -1,0 +1,46 @@
+name: Kill and Restart
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  restart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kill and restart via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 8.163.56.203
+          username: root
+          password: ${{ secrets.SERVER_PASSWORD }}
+          command_timeout: 3m
+          script: |
+            # 杀掉所有旧的 node/tsx 进程
+            pkill -9 -f "tsx api/server" 2>/dev/null || true
+            pkill -9 -f "node.*server" 2>/dev/null || true
+            fuser -k 3001/tcp 2>/dev/null || true
+            pm2 delete chatroom 2>/dev/null || true
+            pm2 kill 2>/dev/null || true
+            sleep 3
+            
+            # 确认没有残留进程
+            ps aux | grep -E "node|tsx" | grep -v grep || echo "无残留进程"
+            ss -tlnp | grep 3001 || echo "端口 3001 已释放"
+            
+            cd /opt/chatroom
+            git remote set-url origin https://github.com/yaoyao5296/chatroom.git
+            git fetch origin
+            git reset --hard origin/master
+            
+            # 用 PM2 重新启动（带环境变量）
+            pm2 start ecosystem.config.cjs
+            sleep 10
+            
+            echo "=== PM2 Status ==="
+            pm2 list
+            echo "=== Health Check ==="
+            curl -s -o /dev/null -w "HTTP: %{http_code}\n" http://localhost:3001/api/health
+            echo "=== PM2 Logs ==="
+            pm2 logs chatroom --lines 20 --nostream 2>&1 || true
