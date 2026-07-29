@@ -54,5 +54,6 @@ module.exports = {
       // 限制 V8 堆
       NODE_OPTIONS: '--max-old-space-size=128 --optimize-for-size --max-semi-space-size=1 --initial-old-space-size=64',
     },
+    // 重启后自动启动
   }],
 }
