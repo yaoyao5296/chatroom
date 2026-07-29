@@ -17,9 +17,12 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           command_timeout: 3m
           script: |
-            # 只杀僵尸进程，不动 PM2 daemon
-            kill -9 8595 2>/dev/null || true
-            pkill -9 -f "tsx api/server" 2>/dev/null || true
+            # 精确杀僵尸进程（PID 可能变化，先查）
+            ZOMBIE=$(ps aux | grep "[t]sx api/server" | awk '{print $2}')
+            if [ -n "$ZOMBIE" ]; then
+              echo "杀掉僵尸进程: $ZOMBIE"
+              kill -9 $ZOMBIE 2>/dev/null || true
+            fi
             fuser -k 3001/tcp 2>/dev/null || true
             pm2 delete chatroom 2>/dev/null || true
             sleep 3
