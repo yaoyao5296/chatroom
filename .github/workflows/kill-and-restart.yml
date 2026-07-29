@@ -17,7 +17,7 @@ jobs:
           password: ${{ secrets.SERVER_PASSWORD }}
           command_timeout: 3m
           script: |
-            # 精确杀僵尸进程（PID 可能变化，先查）
+            # 精确杀僵尸进程
             ZOMBIE=$(ps aux | grep "[t]sx api/server" | awk '{print $2}')
             if [ -n "$ZOMBIE" ]; then
               echo "杀掉僵尸进程: $ZOMBIE"
@@ -25,7 +25,11 @@ jobs:
             fi
             fuser -k 3001/tcp 2>/dev/null || true
             pm2 delete chatroom 2>/dev/null || true
-            sleep 3
+            sleep 5
+            
+            # 确认端口已释放
+            echo "=== 端口检查 ==="
+            ss -tlnp | grep 3001 || echo "端口 3001 已释放"
             
             cd /opt/chatroom
             git remote set-url origin https://github.com/yaoyao5296/chatroom.git
@@ -33,7 +37,7 @@ jobs:
             git reset --hard origin/master
             
             pm2 start ecosystem.config.cjs
-            sleep 12
+            sleep 15
             
             echo "=== PM2 Status ==="
             pm2 list
