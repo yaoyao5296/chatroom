@@ -1,4 +1,4 @@
-name: Deploy to Server
+name: Deploy to Render
 
 on:
   push:
@@ -9,25 +9,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - uses: actions/checkout@v4
+      
+      - name: Deploy to Render
+        uses: render-oss/deploy-to-render-action@v1
         with:
-          host: 8.163.56.203
-          username: root
-          password: ${{ secrets.SERVER_PASSWORD }}
-          script: |
-            cd /opt/chatroom
-            git remote set-url origin https://github.com/yaoyao5296/chatroom.git
-            git fetch origin
-            git reset --hard origin/master
-            fuser -k 3001/tcp 2>/dev/null || true
-            sleep 2
-            pm2 delete chatroom 2>/dev/null || true
-            pm2 start ecosystem.config.cjs
-            sleep 8
-            echo "=== Health Check ==="
-            curl -s -o /dev/null -w "HTTP: %{http_code}\n" http://localhost:3001/api/health
-            echo "=== PM2 Status ==="
-            pm2 list
-            echo "=== Error Logs ==="
-            tail -30 logs/pm2-error.log 2>/dev/null || true
+          apiKey: ${{ secrets.RENDER_API_KEY }}
+          serviceId: ${{ secrets.RENDER_SERVICE_ID }}
