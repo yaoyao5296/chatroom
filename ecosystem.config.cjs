@@ -52,8 +52,10 @@ module.exports = {
       // 数据库
       DATABASE_URL: './data/chatroom.db',
       // 限制 V8 堆
-      NODE_OPTIONS: '--max-old-space-size=128 --optimize-for-size --max-semi-space-size=1 --initial-old-space-size=64',
+      NODE_OPTIONS: '--max-old-space-size=128',
     },
+    // 内存优化参数（不能放 NODE_OPTIONS）
+    node_args: '--optimize-for-size --max-semi-space-size=1 --initial-old-space-size=64',
     // 重启后自动启动
   }],
 }
