@@ -23,7 +23,7 @@ module.exports = {
     name: 'chatroom',
     script: 'api/server.ts',
     interpreter: 'node',
-    interpreterArgs: '--import tsx',
+    interpreterArgs: '--import tsx --optimize-for-size --max-semi-space-size=1 --initial-old-space-size=64',
     args: '',
     instances: 1,
     exec_mode: 'fork',
@@ -54,8 +54,6 @@ module.exports = {
       // 限制 V8 堆
       NODE_OPTIONS: '--max-old-space-size=128',
     },
-    // 内存优化参数（不能放 NODE_OPTIONS）
-    node_args: '--optimize-for-size --max-semi-space-size=1 --initial-old-space-size=64',
     // 重启后自动启动
   }],
 }
