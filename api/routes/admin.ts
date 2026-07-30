@@ -144,4 +144,25 @@ router.post('/impersonate', (req: Request, res: Response): void => {
   }
 })
 
+// 设置/取消官方账号
+router.put('/users/:id/official', (req: Request, res: Response): void => {
+  try {
+    const targetId = parseInt(req.params.id as string)
+    const { isOfficial } = req.body
+
+    const user = stmtCache.get('SELECT id, username FROM users WHERE id = ?').get(targetId) as any
+    if (!user) {
+      res.status(404).json({ success: false, error: '用户不存在' })
+      return
+    }
+
+    stmtCache.get('UPDATE users SET isOfficial = ? WHERE id = ?').run(isOfficial ? 1 : 0, targetId)
+    console.log(`[admin] ${isOfficial ? '设置' : '取消'}官方账号: ${user.username} (${targetId})`)
+    res.json({ success: true, message: `用户 ${user.username} ${isOfficial ? '已设为' : '已取消'}官方账号` })
+  } catch (error: any) {
+    console.error('[admin-official]', error?.message || error)
+    res.status(500).json({ success: false, error: '服务器内部错误' })
+  }
+})
+
 export default router
