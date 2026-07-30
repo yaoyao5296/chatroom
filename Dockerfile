@@ -10,9 +10,6 @@ COPY package.json ./
 # 安装全部依赖（含 devDependencies，vite 构建需要）
 RUN npm install && npm cache clean --force
 
-# 清理编译工具
-RUN apk del python3 make g++
-
 COPY . .
 
 # 构建前端
@@ -24,4 +21,5 @@ RUN mkdir -p /app/data
 ENV NODE_ENV=production
 ENV PORT=3001
 
+# 保留构建工具，better-sqlite3 运行时可能需要
 CMD ["node", "--max-old-space-size=256", "--optimize-for-size", "--import", "tsx", "api/server.ts"]
