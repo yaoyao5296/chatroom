@@ -28,4 +28,4 @@ RUN mkdir -p /app/data
 ENV NODE_ENV=production
 ENV PORT=3001
 
-CMD ["node", "--max-old-space-size=128", "--optimize-for-size", "--import", "tsx", "api/server.ts"]
+CMD ["node", "--max-old-space-size=256", "--optimize-for-size", "--import", "tsx", "api/server.ts"]
