@@ -257,8 +257,11 @@ db.exec(`UPDATE users SET active = 1 WHERE active IS NULL`)
 // 初始化官方账号 ChatRoom（如果不存在）
 const officialExists = db.prepare('SELECT id FROM users WHERE isOfficial = 1').get()
 if (!officialExists) {
-  // 检查是否已有同名非官方用户
-  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get('ChatRoom') as any
+  // 检查是否已有同名非官方用户（兼容大小写）
+  let existing = db.prepare('SELECT id FROM users WHERE username = ?').get('ChatRoom') as any
+  if (!existing) {
+    existing = db.prepare('SELECT id FROM users WHERE username = ?').get('chatroom') as any
+  }
   if (existing) {
     db.prepare('UPDATE users SET isOfficial = 1 WHERE id = ?').run(existing.id)
   } else {
