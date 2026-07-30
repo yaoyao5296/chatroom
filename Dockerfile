@@ -22,4 +22,4 @@ ENV NODE_ENV=production
 ENV PORT=3001
 
 # 保留构建工具，better-sqlite3 运行时可能需要
-CMD ["node", "test-server.js"]
+CMD ["node", "--max-old-space-size=256", "--optimize-for-size", "--import", "tsx", "api/server.ts"]
