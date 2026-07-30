@@ -1,4 +1,4 @@
-# ChatRoom Fly.io 部署 - 0.5GB 内存优化版
+# ChatRoom Railway 部署 - 内存优化版
 FROM node:22-alpine
 
 WORKDIR /app
@@ -7,7 +7,8 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 
 COPY package.json ./
-RUN npm install --omit=dev && npm cache clean --force
+# 安装全部依赖（含 devDependencies，vite 构建需要）
+RUN npm install && npm cache clean --force
 
 # 清理编译工具（减小镜像体积）
 RUN apk del python3 make g++
@@ -16,6 +17,9 @@ COPY . .
 
 # 构建前端
 RUN npm run build
+
+# 构建完成后移除 devDependencies 减小镜像体积
+RUN npm prune --omit=dev
 
 # 确保数据目录存在
 RUN mkdir -p /app/data
