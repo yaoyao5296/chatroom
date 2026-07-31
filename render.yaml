@@ -7,7 +7,7 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install && npm run build
-    startCommand: node --max-old-space-size=192 --optimize-for-size --import tsx api/server.ts
+    startCommand: node --max-old-space-size=256 --optimize-for-size --import tsx api/server.ts
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -18,10 +18,10 @@ services:
         value: "3001"
       - key: JWT_SECRET
         generateValue: true
-      - key: DEEPSEEK_API_KEY
+      - key: GITHUB_TOKEN
         sync: false
-      - key: CLOUDINARY_URL
-        sync: false
+      - key: AI_MODEL
+        value: gpt-4o-mini
       - key: MAIL_HOST
         sync: false
       - key: MAIL_PORT
