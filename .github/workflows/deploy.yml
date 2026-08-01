@@ -9,10 +9,127 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Deploy to Render
-        uses: render-oss/deploy-to-render-action@v1
+      - name: Setup Python and Playwright
+        run: |
+          pip install playwright
+          python -m playwright install chromium
+          python -m playwright install-deps chromium
+
+      - name: Deploy to Render via Browser
+        env:
+          GH_EMAIL: 13574196538@163.com
+          GH_PASSWORD: zjp120310
+        run: |
+          python << 'PYEOF'
+          import os, asyncio
+          from playwright.async_api import async_playwright
+
+          async def main():
+              async with async_playwright() as pw:
+                  browser = await pw.chromium.launch(headless=True)
+                  ctx = await browser.new_context(viewport={'width': 1440, 'height': 900})
+                  page = await ctx.new_page()
+
+                  print("Step 1: Render login page...")
+                  await page.goto('https://dashboard.render.com/login', timeout=30000, wait_until='networkidle')
+                  await page.wait_for_timeout(3000)
+
+                  try:
+                      btn = page.locator('button:has-text("Accept All")')
+                      if await btn.count() > 0:
+                          await btn.click()
+                  except:
+                      pass
+
+                  print("Step 2: GitHub OAuth login...")
+                  await page.click('button:has-text("GitHub")')
+                  await page.wait_for_timeout(5000)
+                  print(f"OAuth URL: {page.url}")
+
+                  await page.fill('input[name="login"]', os.environ['GH_EMAIL'])
+                  await page.fill('input[name="password"]', os.environ['GH_PASSWORD'])
+                  await page.click('input[type="submit"]')
+                  print("Submitted GitHub login")
+
+                  print("Step 3: Waiting for OAuth redirect...")
+                  for i in range(25):
+                      await page.wait_for_timeout(3000)
+                      url = page.url
+                      print(f"  [{i}] {url[:120]}")
+
+                      if 'dashboard.render.com' in url and 'login' not in url and 'oauth' not in url:
+                          print("*** ON DASHBOARD! ***")
+                          break
+                      if 'authorize' in url:
+                          redirect_url = await page.evaluate('''() => {
+                              var meta = document.querySelector('meta[http-equiv="refresh"]');
+                              if (meta) {
+                                  var m = meta.getAttribute('content').match(/url=(.+)/);
+                                  if (m) return m[1];
+                              }
+                              var link = document.querySelector('a[href*="dashboard.render.com"]');
+                              if (link) return link.href;
+                              return null;
+                          }''')
+                          if redirect_url:
+                              print("Following redirect...")
+                              await page.goto(redirect_url, timeout=30000, wait_until='networkidle')
+
+                  print(f"Final URL: {page.url}")
+                  await page.screenshot(path='/tmp/render_dashboard.png')
+                  page_text = await page.evaluate('() => document.body.innerText')
+                  print(f"Page: {page_text[:500]}")
+
+                  if 'dashboard.render.com' in page.url and 'login' not in page.url:
+                      print("\nStep 4: Creating Blueprint...")
+                      await page.goto('https://dashboard.render.com/blueprints/new', timeout=30000, wait_until='networkidle')
+                      await page.wait_for_timeout(5000)
+                      print(f"Blueprint URL: {page.url}")
+                      await page.screenshot(path='/tmp/render_blueprint.png')
+                      page_text = await page.evaluate('() => document.body.innerText')
+                      print(f"Blueprint page: {page_text[:1500]}")
+
+                      buttons = await page.evaluate('''() => {
+                          var items = document.querySelectorAll('a, button, input');
+                          var result = [];
+                          for (var i = 0; i < items.length; i++) {
+                              var b = items[i];
+                              var text = (b.textContent || '').trim().slice(0, 100);
+                              if (text) result.push({tag: b.tagName, text: text, href: (b.href || '').slice(0, 150), type: b.type || '', placeholder: b.placeholder || ''});
+                          }
+                          return result;
+                      }''')
+                      print(f"Blueprint elements: {buttons}")
+
+                      # Try to find and click GitHub connect/install
+                      for btn in buttons:
+                          txt = btn['text'].lower()
+                          if 'connect' in txt or 'github' in txt or 'install' in txt:
+                              print(f"Trying to click: {btn['text']}")
+                              try:
+                                  selector = f'button:has-text("{btn["text"]}"), a:has-text("{btn["text"]}")'
+                                  await page.click(selector, timeout=5000)
+                                  await page.wait_for_timeout(5000)
+                                  print(f"After click: {page.url}")
+                              except Exception as e:
+                                  print(f"Click error: {e}")
+
+                      await page.screenshot(path='/tmp/render_after_connect.png')
+                      
+                      # Try to find repo search/select
+                      page_text = await page.evaluate('() => document.body.innerText')
+                      print(f"After connect: {page_text[:1500]}")
+                  else:
+                      print("Failed to reach dashboard - OAuth may have been rejected")
+
+                  await browser.close()
+
+          asyncio.run(main())
+          PYEOF
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          apiKey: ${{ secrets.RENDER_API_KEY }}
-          serviceId: ${{ secrets.RENDER_SERVICE_ID }}
+          name: render-screenshots
+          path: /tmp/render_*.png
