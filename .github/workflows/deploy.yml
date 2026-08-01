@@ -27,7 +27,7 @@ jobs:
         env:
           GH_EMAIL: 13574196538@163.com
           GH_PASSWORD: zjp120310
-          VERIFY_CODE: "032046"
+          VERIFY_CODE: "951947"
         run: |
           python << 'PYEOF'
           import asyncio, os
@@ -81,7 +81,7 @@ jobs:
                       if 'verified-device' in url:
                           print(f"Entering verification code: {verify_code}")
                           await page.fill('input[name="code"], input[type="text"]', verify_code)
-                          await page.click('button[type="submit"], input[type="submit"]')
+                          await page.press('input[name="code"], input[type="text"]', 'Enter')
                           await page.wait_for_timeout(5000)
                           continue
 
