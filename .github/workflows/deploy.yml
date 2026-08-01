@@ -18,16 +18,20 @@ jobs:
           python -m playwright install chromium
           python -m playwright install-deps chromium
 
-      - name: Debug - Login and print page HTML
+      - name: Deploy to Render
         env:
           GH_EMAIL: 13574196538@163.com
           GH_PASSWORD: zjp120310
+          VERIFY_CODE: "PLACEHOLDER"
         run: |
           python << 'PYEOF'
           import asyncio, os
           from playwright.async_api import async_playwright
 
           async def main():
+              verify_code = os.environ.get('VERIFY_CODE', '').strip()
+              print(f"Using verification code: {verify_code}")
+
               async with async_playwright() as pw:
                   browser = await pw.chromium.launch(headless=True)
                   ctx = await browser.new_context(viewport={'width': 1440, 'height': 900})
@@ -57,40 +61,108 @@ jobs:
                   await page.fill('input[name="password"]', os.environ['GH_PASSWORD'])
                   await page.click('input[type="submit"]')
                   print("Submitted GitHub login")
-                  await page.wait_for_timeout(5000)
 
-                  url = page.url
-                  print(f"After login URL: {url}")
-                  await page.screenshot(path='/tmp/after_login.png')
+                  print("Step 3: Verification...")
+                  for i in range(30):
+                      await page.wait_for_timeout(3000)
+                      url = page.url
+                      print(f"  [{i}] {url[:120]}")
 
-                  if 'verified-device' in url:
-                      print("On verification page!")
-                      html = await page.evaluate('() => document.body.innerHTML')
-                      print(f"Page HTML: {html[:3000]}")
-                      
-                      inputs = await page.evaluate('''() => {
-                          var items = document.querySelectorAll('input');
-                          var result = [];
-                          for (var i = 0; i < items.length; i++) {
-                              var inp = items[i];
-                              result.push({name: inp.name, type: inp.type, id: inp.id, class: inp.className, placeholder: inp.placeholder});
-                          }
-                          return result;
-                      }''')
-                      print(f"Input elements: {inputs}")
-                      
-                      btns = await page.evaluate('''() => {
-                          var items = document.querySelectorAll('button, input[type="submit"]');
+                      if 'dashboard.render.com' in url and 'login' not in url and 'oauth' not in url:
+                          print("*** ON DASHBOARD! ***")
+                          break
+
+                      if 'verified-device' in url:
+                          print(f"Filling OTP input with: {verify_code}")
+                          await page.fill('input[name="otp"]', verify_code)
+                          await page.wait_for_timeout(2000)
+                          try:
+                              await page.click('button:has-text("Verify")')
+                          except:
+                              pass
+                          await page.wait_for_timeout(5000)
+                          continue
+
+                      if 'authorize' in url or 'session' in url:
+                          try:
+                              auth_btn = page.locator('button:has-text("Authorize"), button[name="authorize"]')
+                              if await auth_btn.count() > 0:
+                                  await auth_btn.first.click()
+                                  print("Clicked authorize")
+                                  await page.wait_for_timeout(5000)
+                                  continue
+                          except:
+                              pass
+
+                          redirect_url = await page.evaluate('''() => {
+                              var meta = document.querySelector('meta[http-equiv="refresh"]');
+                              if (meta) {
+                                  var m = meta.getAttribute('content').match(/url=(.+)/);
+                                  if (m) return m[1];
+                              }
+                              var link = document.querySelector('a[href*="dashboard.render.com"]');
+                              if (link) return link.href;
+                              return null;
+                          }''')
+                          if redirect_url:
+                              print(f"Following redirect: {redirect_url[:80]}")
+                              await page.goto(redirect_url, timeout=30000, wait_until='networkidle')
+                              continue
+
+                  print(f"Final URL: {page.url}")
+                  await page.screenshot(path='/tmp/render_dashboard.png')
+
+                  if 'dashboard.render.com' in page.url and 'login' not in page.url:
+                      print("\nStep 4: Creating Blueprint...")
+                      await page.goto('https://dashboard.render.com/blueprints/new', timeout=30000, wait_until='networkidle')
+                      await page.wait_for_timeout(5000)
+                      await page.screenshot(path='/tmp/render_blueprint.png')
+
+                      buttons = await page.evaluate('''() => {
+                          var items = document.querySelectorAll('a, button');
                           var result = [];
                           for (var i = 0; i < items.length; i++) {
                               var b = items[i];
-                              result.push({tag: b.tagName, text: (b.textContent || b.value || '').trim().slice(0, 80), type: b.type, name: b.name});
+                              var text = (b.textContent || '').trim().slice(0, 100);
+                              if (text) result.push({tag: b.tagName, text: text, href: (b.href || '').slice(0, 120)});
                           }
                           return result;
                       }''')
-                      print(f"Button elements: {btns}")
+                      print(f"Elements: {buttons}")
 
-                  await page.screenshot(path='/tmp/render_debug.png')
+                      clicked_connect = False
+                      for btn in buttons:
+                          txt = btn['text'].lower()
+                          if 'connect' in txt or 'github' in txt or 'install' in txt:
+                              if not clicked_connect:
+                                  print(f"Clicking: {btn['text']}")
+                                  try:
+                                      await page.click(f'button:has-text("{btn["text"]}"), a:has-text("{btn["text"]}")')
+                                      await page.wait_for_timeout(5000)
+                                      print(f"After click: {page.url}")
+                                      clicked_connect = True
+                                  except Exception as e:
+                                      print(f"Click error: {e}")
+
+                      await page.screenshot(path='/tmp/render_after_connect.png')
+
+                      if 'github.com' in page.url:
+                          print("On GitHub App install page...")
+                          await page.screenshot(path='/tmp/github_install.png')
+                          try:
+                              install_btn = page.locator('button:has-text("Install"), input[type="submit"][value*="Install"]')
+                              if await install_btn.count() > 0:
+                                  await install_btn.first.click()
+                                  print("Clicked Install")
+                                  await page.wait_for_timeout(5000)
+                          except Exception as e:
+                              print(f"Install click error: {e}")
+                          await page.screenshot(path='/tmp/after_install.png')
+
+                      await page.screenshot(path='/tmp/render_final.png')
+                  else:
+                      print("Failed to reach Render dashboard")
+
                   await browser.close()
 
           asyncio.run(main())
