@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       verification_code:
-        description: 'GitHub 设备验证码（6位数字）'
+        description: 'GitHub device verification code'
         required: false
         default: ''
 
@@ -27,7 +27,7 @@ jobs:
         env:
           GH_EMAIL: 13574196538@163.com
           GH_PASSWORD: zjp120310
-          VERIFY_CODE: ${{ github.event.inputs.verification_code }}
+          VERIFY_CODE: 032046
         run: |
           python << 'PYEOF'
           import asyncio, os
@@ -35,7 +35,7 @@ jobs:
 
           async def main():
               verify_code = os.environ.get('VERIFY_CODE', '').strip()
-              print(f"Verification code provided: {'yes' if verify_code else 'no'}")
+              print(f"Verification code: {verify_code}")
 
               async with async_playwright() as pw:
                   browser = await pw.chromium.launch(headless=True)
@@ -79,16 +79,11 @@ jobs:
                           break
 
                       if 'verified-device' in url:
-                          if verify_code:
-                              print(f"Entering verification code: {verify_code}")
-                              await page.fill('input[name="code"], input[type="text"]', verify_code)
-                              await page.click('button[type="submit"], input[type="submit"]')
-                              await page.wait_for_timeout(5000)
-                              continue
-                          else:
-                              print("No verification code provided - saving screenshot")
-                              await page.screenshot(path='/tmp/verify_needed.png')
-                              break
+                          print(f"Entering verification code: {verify_code}")
+                          await page.fill('input[name="code"], input[type="text"]', verify_code)
+                          await page.click('button[type="submit"], input[type="submit"]')
+                          await page.wait_for_timeout(5000)
+                          continue
 
                       if 'authorize' in url or 'session' in url:
                           try:
