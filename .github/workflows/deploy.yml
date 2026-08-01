@@ -36,32 +36,40 @@ jobs:
               for attempt in range(15):
                   try:
                       mail = imaplib.IMAP4_SSL('imap.163.com', 993)
-                      mail.login(os.environ['MAIL_USER'], os.environ['MAIL_PASS'])
-                      mail.select('INBOX')
+                      print(f"  Attempt {attempt+1}: logging in as {os.environ['MAIL_USER']}...")
+                      resp, data = mail.login(os.environ['MAIL_USER'], os.environ['MAIL_PASS'])
+                      print(f"  Login response: {resp}")
+
+                      resp, data = mail.select('INBOX')
+                      print(f"  Select INBOX response: {resp}")
+
+                      if resp != 'OK':
+                          mail.logout()
+                          time.sleep(5)
+                          continue
 
                       # Search for GitHub verification emails
-                      status, messages = mail.search(None, 'FROM', 'noreply@github.com')
-                      if status == 'OK' and messages[0]:
+                      resp, messages = mail.search(None, 'FROM', 'noreply@github.com')
+                      print(f"  Search response: {resp}")
+
+                      if resp == 'OK' and messages[0]:
                           msg_ids = messages[0].split()
-                          # Get the latest one
                           latest_id = msg_ids[-1]
-                          status, msg_data = mail.fetch(latest_id, '(RFC822)')
-                          if status == 'OK':
+                          resp, msg_data = mail.fetch(latest_id, '(RFC822)')
+                          if resp == 'OK':
                               msg = email.message_from_bytes(msg_data[0][1])
 
-                              # Decode subject
                               subject, encoding = decode_header(msg['Subject'])[0]
                               if isinstance(subject, bytes):
                                   subject = subject.decode(encoding or 'utf-8', errors='ignore')
 
-                              print(f"Found email: {subject}")
+                              print(f"  Found email: {subject}")
 
-                              # Get body
                               body = ''
                               if msg.is_multipart():
                                   for part in msg.walk():
                                       content_type = part.get_content_type()
-                                      if content_type == 'text/plain' or content_type == 'text/html':
+                                      if content_type in ('text/plain', 'text/html'):
                                           try:
                                               payload = part.get_payload(decode=True)
                                               if payload:
@@ -76,19 +84,18 @@ jobs:
                                   except:
                                       pass
 
-                              # Find 6-digit code
                               codes = re.findall(r'\b(\d{6})\b', body)
                               if codes:
                                   code = codes[0]
-                                  print(f"Found verification code: {code}")
+                                  print(f"  Found verification code: {code}")
                                   mail.logout()
                                   return code
 
                       mail.logout()
                   except Exception as e:
-                      print(f"IMAP attempt {attempt+1} error: {e}")
+                      print(f"  IMAP error: {e}")
 
-                  print(f"Waiting for email... (attempt {attempt+1}/15)")
+                  print(f"  Waiting 5s...")
                   time.sleep(5)
 
               return None
@@ -102,13 +109,6 @@ jobs:
                   await page.add_init_script('''() => {
                       Object.defineProperty(navigator, 'webdriver', {get: () => false});
                       window.chrome = {runtime: {}};
-                      const origQuery = window.navigator.permissions.query;
-                      window.navigator.permissions.query = (params) =>
-                          params.name === 'notifications'
-                          ? Promise.resolve({state: Notification.permission})
-                          : origQuery(params);
-                      Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
-                      Object.defineProperty(navigator, 'languages', {get: () => ['en-US','en']});
                   }''')
 
                   print("Step 1: Going to Render login...")
@@ -142,7 +142,6 @@ jobs:
                           print("*** ON DASHBOARD! ***")
                           break
 
-                      # Check for device verification
                       if 'verified-device' in url:
                           print("Device verification required - checking email...")
                           code = get_verification_code()
