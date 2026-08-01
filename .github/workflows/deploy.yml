@@ -4,11 +4,6 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
-    inputs:
-      verification_code:
-        description: 'GitHub device verification code'
-        required: false
-        default: ''
 
 jobs:
   deploy:
@@ -17,162 +12,87 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Python and Playwright
+      - name: GitHub Device Flow Auth
+        id: device_auth
         run: |
-          pip install playwright
-          python -m playwright install chromium
-          python -m playwright install-deps chromium
+          echo "Requesting device code from GitHub..."
+          DEVICE_RESP=$(curl -s -X POST https://github.com/login/device/code \
+            -H "Accept: application/json" \
+            -d "client_id=Iv1.558507eb9b186639&scope=user:email")
+          
+          echo "Response: $DEVICE_RESP"
+          
+          DEVICE_CODE=$(echo $DEVICE_RESP | python3 -c "import sys,json; print(json.load(sys.stdin)['device_code'])")
+          USER_CODE=$(echo $DEVICE_RESP | python3 -c "import sys,json; print(json.load(sys.stdin)['user_code'])")
+          VERIFY_URI=$(echo $DEVICE_RESP | python3 -c "import sys,json; print(json.load(sys.stdin)['verification_uri'])")
+          
+          echo "device_code=$DEVICE_CODE" >> $GITHUB_OUTPUT
+          
+          echo ""
+          echo "============================================"
+          echo "Please open: $VERIFY_URI"
+          echo "And enter code: $USER_CODE"
+          echo "============================================"
+          echo ""
 
-      - name: Deploy to Render
+      - name: Poll for Access Token
+        id: poll_token
+        run: |
+          DEVICE_CODE="${{ steps.device_auth.outputs.device_code }}"
+          echo "Polling for authorization..."
+          
+          for i in $(seq 1 60); do
+            sleep 5
+            TOKEN_RESP=$(curl -s -X POST https://github.com/login/oauth/access_token \
+              -H "Accept: application/json" \
+              -d "client_id=Iv1.558507eb9b186639&device_code=$DEVICE_CODE&grant_type=urn:ietf:params:oauth:grant-type:device_code")
+            
+            echo "[$i] $TOKEN_RESP"
+            
+            ACCESS_TOKEN=$(echo $TOKEN_RESP | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('access_token',''))" 2>/dev/null || echo "")
+            ERROR=$(echo $TOKEN_RESP | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('error',''))" 2>/dev/null || echo "")
+            
+            if [ -n "$ACCESS_TOKEN" ]; then
+              echo "Got access token!"
+              echo "access_token=$ACCESS_TOKEN" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            
+            if [ "$ERROR" = "authorization_pending" ]; then
+              echo "Waiting for user to authorize..."
+            elif [ "$ERROR" = "slow_down" ]; then
+              sleep 5
+            elif [ -n "$ERROR" ]; then
+              echo "Error: $ERROR - will retry"
+            fi
+          done
+          echo "Timed out"
+          exit 1
+
+      - name: Deploy to Render via API
         env:
-          GH_EMAIL: 13574196538@163.com
-          GH_PASSWORD: zjp120310
-          VERIFY_CODE: "951947"
+          GH_ACCESS_TOKEN: ${{ steps.poll_token.outputs.access_token }}
         run: |
-          python << 'PYEOF'
-          import asyncio, os
-          from playwright.async_api import async_playwright
-
-          async def main():
-              verify_code = os.environ.get('VERIFY_CODE', '').strip()
-              print(f"Verification code: {verify_code} (len={len(verify_code)})")
-
-              async with async_playwright() as pw:
-                  browser = await pw.chromium.launch(headless=True)
-                  ctx = await browser.new_context(viewport={'width': 1440, 'height': 900})
-                  page = await ctx.new_page()
-
-                  await page.add_init_script('''() => {
-                      Object.defineProperty(navigator, 'webdriver', {get: () => false});
-                      window.chrome = {runtime: {}};
-                  }''')
-
-                  print("Step 1: Render login...")
-                  await page.goto('https://dashboard.render.com/login', timeout=30000, wait_until='networkidle')
-                  await page.wait_for_timeout(3000)
-
-                  try:
-                      btn = page.locator('button:has-text("Accept All")')
-                      if await btn.count() > 0:
-                          await btn.click()
-                  except:
-                      pass
-
-                  print("Step 2: GitHub OAuth...")
-                  await page.click('button:has-text("GitHub")')
-                  await page.wait_for_timeout(5000)
-                  print(f"OAuth URL: {page.url}")
-
-                  await page.fill('input[name="login"]', os.environ['GH_EMAIL'])
-                  await page.fill('input[name="password"]', os.environ['GH_PASSWORD'])
-                  await page.click('input[type="submit"]')
-                  print("Submitted GitHub login")
-
-                  print("Step 3: Verification...")
-                  for i in range(30):
-                      await page.wait_for_timeout(3000)
-                      url = page.url
-                      print(f"  [{i}] {url[:120]}")
-
-                      if 'dashboard.render.com' in url and 'login' not in url and 'oauth' not in url:
-                          print("*** ON DASHBOARD! ***")
-                          break
-
-                      if 'verified-device' in url:
-                          print(f"Entering verification code: {verify_code}")
-                          await page.fill('input[name="code"], input[type="text"]', verify_code)
-                          await page.press('input[name="code"], input[type="text"]', 'Enter')
-                          await page.wait_for_timeout(5000)
-                          continue
-
-                      if 'authorize' in url or 'session' in url:
-                          try:
-                              auth_btn = page.locator('button:has-text("Authorize"), button[name="authorize"]')
-                              if await auth_btn.count() > 0:
-                                  await auth_btn.first.click()
-                                  print("Clicked authorize")
-                                  await page.wait_for_timeout(5000)
-                                  continue
-                          except:
-                              pass
-
-                          redirect_url = await page.evaluate('''() => {
-                              var meta = document.querySelector('meta[http-equiv="refresh"]');
-                              if (meta) {
-                                  var m = meta.getAttribute('content').match(/url=(.+)/);
-                                  if (m) return m[1];
-                              }
-                              var link = document.querySelector('a[href*="dashboard.render.com"]');
-                              if (link) return link.href;
-                              return null;
-                          }''')
-                          if redirect_url:
-                              print(f"Following redirect: {redirect_url[:80]}")
-                              await page.goto(redirect_url, timeout=30000, wait_until='networkidle')
-                              continue
-
-                  print(f"Final URL: {page.url}")
-                  await page.screenshot(path='/tmp/render_dashboard.png')
-
-                  if 'dashboard.render.com' in page.url and 'login' not in page.url:
-                      print("\nStep 4: Creating Blueprint...")
-                      await page.goto('https://dashboard.render.com/blueprints/new', timeout=30000, wait_until='networkidle')
-                      await page.wait_for_timeout(5000)
-                      await page.screenshot(path='/tmp/render_blueprint.png')
-
-                      buttons = await page.evaluate('''() => {
-                          var items = document.querySelectorAll('a, button');
-                          var result = [];
-                          for (var i = 0; i < items.length; i++) {
-                              var b = items[i];
-                              var text = (b.textContent || '').trim().slice(0, 100);
-                              if (text) result.push({tag: b.tagName, text: text, href: (b.href || '').slice(0, 120)});
-                          }
-                          return result;
-                      }''')
-                      print(f"Elements: {buttons}")
-
-                      clicked_connect = False
-                      for btn in buttons:
-                          txt = btn['text'].lower()
-                          if 'connect' in txt or 'github' in txt or 'install' in txt:
-                              if not clicked_connect:
-                                  print(f"Clicking: {btn['text']}")
-                                  try:
-                                      await page.click(f'button:has-text("{btn["text"]}"), a:has-text("{btn["text"]}")')
-                                      await page.wait_for_timeout(5000)
-                                      print(f"After click: {page.url}")
-                                      clicked_connect = True
-                                  except Exception as e:
-                                      print(f"Click error: {e}")
-
-                      await page.screenshot(path='/tmp/render_after_connect.png')
-
-                      if 'github.com' in page.url:
-                          print("On GitHub App install page...")
-                          await page.screenshot(path='/tmp/github_install.png')
-                          try:
-                              install_btn = page.locator('button:has-text("Install"), input[type="submit"][value*="Install"]')
-                              if await install_btn.count() > 0:
-                                  await install_btn.first.click()
-                                  print("Clicked Install")
-                                  await page.wait_for_timeout(5000)
-                          except Exception as e:
-                              print(f"Install click error: {e}")
-                          await page.screenshot(path='/tmp/after_install.png')
-
-                      await page.screenshot(path='/tmp/render_final.png')
-                  else:
-                      print("Failed to reach Render dashboard")
-
-                  await browser.close()
-
-          asyncio.run(main())
-          PYEOF
-
-      - name: Upload screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: render-screenshots
-          path: /tmp/render_*.png
+          echo "Got GitHub access token, deploying to Render..."
+          
+          RENDER_RESP=$(curl -s -X POST https://api.render.com/v1/oauth/github \
+            -H "Content-Type: application/json" \
+            -d "{\"token\": \"$GH_ACCESS_TOKEN\"}")
+          
+          echo "Render auth: $RENDER_RESP"
+          
+          RENDER_API_KEY=$(echo $RENDER_RESP | python3 -c "import sys,json; print(json.load(sys.stdin).get('apiKey',''))" 2>/dev/null || echo "")
+          
+          if [ -z "$RENDER_API_KEY" ]; then
+            echo "Failed to get Render API key"
+            exit 1
+          fi
+          
+          echo "Got Render API key!"
+          
+          BLUEPRINT_RESP=$(curl -s -X POST https://api.render.com/v1/blueprints \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"repo\": \"git@github.com:yaoyao5296/chatroom.git\", \"branch\": \"master\"}")
+          
+          echo "Blueprint: $BLUEPRINT_RESP"
