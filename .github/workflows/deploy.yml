@@ -9,19 +9,22 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
       - name: Setup Python and Playwright
         run: |
           pip install playwright
           python -m playwright install chromium
           python -m playwright install-deps chromium
 
-      - name: Deploy to Render via Browser
+      - name: Deploy to Render
         env:
           GH_EMAIL: 13574196538@163.com
           GH_PASSWORD: zjp120310
         run: |
           python << 'PYEOF'
-          import os, asyncio
+          import asyncio, os
           from playwright.async_api import async_playwright
 
           async def main():
@@ -30,7 +33,19 @@ jobs:
                   ctx = await browser.new_context(viewport={'width': 1440, 'height': 900})
                   page = await ctx.new_page()
 
-                  print("Step 1: Render login page...")
+                  await page.add_init_script('''() => {
+                      Object.defineProperty(navigator, 'webdriver', {get: () => false});
+                      window.chrome = {runtime: {}};
+                      const origQuery = window.navigator.permissions.query;
+                      window.navigator.permissions.query = (params) =>
+                          params.name === 'notifications'
+                          ? Promise.resolve({state: Notification.permission})
+                          : origQuery(params);
+                      Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+                      Object.defineProperty(navigator, 'languages', {get: () => ['en-US','en']});
+                  }''')
+
+                  print("Step 1: Going to Render login...")
                   await page.goto('https://dashboard.render.com/login', timeout=30000, wait_until='networkidle')
                   await page.wait_for_timeout(3000)
 
@@ -41,7 +56,7 @@ jobs:
                   except:
                       pass
 
-                  print("Step 2: GitHub OAuth login...")
+                  print("Step 2: GitHub OAuth...")
                   await page.click('button:has-text("GitHub")')
                   await page.wait_for_timeout(5000)
                   print(f"OAuth URL: {page.url}")
@@ -51,8 +66,8 @@ jobs:
                   await page.click('input[type="submit"]')
                   print("Submitted GitHub login")
 
-                  print("Step 3: Waiting for OAuth redirect...")
-                  for i in range(25):
+                  print("Step 3: Handling verification...")
+                  for i in range(20):
                       await page.wait_for_timeout(3000)
                       url = page.url
                       print(f"  [{i}] {url[:120]}")
@@ -60,7 +75,18 @@ jobs:
                       if 'dashboard.render.com' in url and 'login' not in url and 'oauth' not in url:
                           print("*** ON DASHBOARD! ***")
                           break
-                      if 'authorize' in url:
+
+                      if 'authorize' in url or 'session' in url:
+                          try:
+                              auth_btn = page.locator('button:has-text("Authorize"), button[name="authorize"], input[type="submit"][value="Authorize"]')
+                              if await auth_btn.count() > 0:
+                                  await auth_btn.first.click()
+                                  print("Clicked authorize")
+                                  await page.wait_for_timeout(5000)
+                                  continue
+                          except:
+                              pass
+
                           redirect_url = await page.evaluate('''() => {
                               var meta = document.querySelector('meta[http-equiv="refresh"]');
                               if (meta) {
@@ -72,13 +98,17 @@ jobs:
                               return null;
                           }''')
                           if redirect_url:
-                              print("Following redirect...")
+                              print(f"Following redirect: {redirect_url[:80]}")
                               await page.goto(redirect_url, timeout=30000, wait_until='networkidle')
+                              continue
+
+                      page_text = await page.evaluate('() => document.body.innerText')
+                      if 'verification' in page_text.lower() or 'device' in page_text.lower():
+                          print("Verification required - saving screenshot")
+                          await page.screenshot(path='/tmp/verify_needed.png')
 
                   print(f"Final URL: {page.url}")
                   await page.screenshot(path='/tmp/render_dashboard.png')
-                  page_text = await page.evaluate('() => document.body.innerText')
-                  print(f"Page: {page_text[:500]}")
 
                   if 'dashboard.render.com' in page.url and 'login' not in page.url:
                       print("\nStep 4: Creating Blueprint...")
@@ -86,41 +116,51 @@ jobs:
                       await page.wait_for_timeout(5000)
                       print(f"Blueprint URL: {page.url}")
                       await page.screenshot(path='/tmp/render_blueprint.png')
-                      page_text = await page.evaluate('() => document.body.innerText')
-                      print(f"Blueprint page: {page_text[:1500]}")
 
                       buttons = await page.evaluate('''() => {
-                          var items = document.querySelectorAll('a, button, input');
+                          var items = document.querySelectorAll('a, button, input[type="submit"]');
                           var result = [];
                           for (var i = 0; i < items.length; i++) {
                               var b = items[i];
-                              var text = (b.textContent || '').trim().slice(0, 100);
-                              if (text) result.push({tag: b.tagName, text: text, href: (b.href || '').slice(0, 150), type: b.type || '', placeholder: b.placeholder || ''});
+                              var text = (b.textContent || b.value || '').trim().slice(0, 100);
+                              if (text) result.push({tag: b.tagName, text: text, href: (b.href || '').slice(0, 120)});
                           }
                           return result;
                       }''')
-                      print(f"Blueprint elements: {buttons}")
+                      print(f"Elements: {buttons}")
 
-                      # Try to find and click GitHub connect/install
+                      clicked_connect = False
                       for btn in buttons:
                           txt = btn['text'].lower()
                           if 'connect' in txt or 'github' in txt or 'install' in txt:
-                              print(f"Trying to click: {btn['text']}")
-                              try:
-                                  selector = f'button:has-text("{btn["text"]}"), a:has-text("{btn["text"]}")'
-                                  await page.click(selector, timeout=5000)
-                                  await page.wait_for_timeout(5000)
-                                  print(f"After click: {page.url}")
-                              except Exception as e:
-                                  print(f"Click error: {e}")
+                              if not clicked_connect:
+                                  print(f"Clicking: {btn['text']}")
+                                  try:
+                                      await page.click(f'button:has-text("{btn["text"]}"), a:has-text("{btn["text"]}")')
+                                      await page.wait_for_timeout(5000)
+                                      print(f"After click: {page.url}")
+                                      clicked_connect = True
+                                  except Exception as e:
+                                      print(f"Click error: {e}")
 
                       await page.screenshot(path='/tmp/render_after_connect.png')
-                      
-                      # Try to find repo search/select
-                      page_text = await page.evaluate('() => document.body.innerText')
-                      print(f"After connect: {page_text[:1500]}")
+
+                      if 'github.com' in page.url:
+                          print("On GitHub App install page...")
+                          await page.screenshot(path='/tmp/github_install.png')
+                          try:
+                              install_btn = page.locator('button:has-text("Install"), input[type="submit"][value*="Install"]')
+                              if await install_btn.count() > 0:
+                                  await install_btn.first.click()
+                                  print("Clicked Install")
+                                  await page.wait_for_timeout(5000)
+                          except Exception as e:
+                              print(f"Install click error: {e}")
+                          await page.screenshot(path='/tmp/after_install.png')
+
+                      await page.screenshot(path='/tmp/render_final.png')
                   else:
-                      print("Failed to reach dashboard - OAuth may have been rejected")
+                      print("Failed to reach Render dashboard")
 
                   await browser.close()
 
