@@ -31,73 +31,77 @@ jobs:
           from playwright.async_api import async_playwright
 
           def get_verification_code():
-              """Read GitHub verification code from 163.com email"""
               print("Connecting to 163.com IMAP to get verification code...")
               for attempt in range(15):
                   try:
                       mail = imaplib.IMAP4_SSL('imap.163.com', 993)
-                      print(f"  Attempt {attempt+1}: logging in as {os.environ['MAIL_USER']}...")
                       resp, data = mail.login(os.environ['MAIL_USER'], os.environ['MAIL_PASS'])
-                      print(f"  Login response: {resp}")
+                      print(f"  Login: {resp}")
+                      if resp != 'OK':
+                          mail.logout()
+                          time.sleep(5)
+                          continue
+
+                      resp, folders = mail.list()
+                      print(f"  List: {resp}")
+                      if resp == 'OK' and folders:
+                          for f in folders:
+                              print(f"    Folder: {f.decode('utf-8', errors='ignore')[:100]}")
 
                       resp, data = mail.select('INBOX')
-                      print(f"  Select INBOX response: {resp}")
+                      print(f"  Select INBOX: {resp}")
+                      if resp != 'OK':
+                          for name in ['inbox', '收件箱']:
+                              resp, data = mail.select(name)
+                              print(f"  Select '{name}': {resp}")
+                              if resp == 'OK':
+                                  break
 
                       if resp != 'OK':
                           mail.logout()
                           time.sleep(5)
                           continue
 
-                      # Search for GitHub verification emails
                       resp, messages = mail.search(None, 'FROM', 'noreply@github.com')
-                      print(f"  Search response: {resp}")
-
+                      print(f"  Search: {resp}")
                       if resp == 'OK' and messages[0]:
                           msg_ids = messages[0].split()
                           latest_id = msg_ids[-1]
                           resp, msg_data = mail.fetch(latest_id, '(RFC822)')
-                          if resp == 'OK':
+                          if resp == 'OK' and msg_data[0]:
                               msg = email.message_from_bytes(msg_data[0][1])
-
                               subject, encoding = decode_header(msg['Subject'])[0]
                               if isinstance(subject, bytes):
                                   subject = subject.decode(encoding or 'utf-8', errors='ignore')
-
-                              print(f"  Found email: {subject}")
-
+                              print(f"  Found: {subject}")
                               body = ''
                               if msg.is_multipart():
                                   for part in msg.walk():
-                                      content_type = part.get_content_type()
-                                      if content_type in ('text/plain', 'text/html'):
+                                      ct = part.get_content_type()
+                                      if ct in ('text/plain', 'text/html'):
                                           try:
-                                              payload = part.get_payload(decode=True)
-                                              if payload:
-                                                  body += payload.decode('utf-8', errors='ignore')
+                                              p = part.get_payload(decode=True)
+                                              if p:
+                                                  body += p.decode('utf-8', errors='ignore')
                                           except:
                                               pass
                               else:
                                   try:
-                                      payload = msg.get_payload(decode=True)
-                                      if payload:
-                                          body = payload.decode('utf-8', errors='ignore')
+                                      p = msg.get_payload(decode=True)
+                                      if p:
+                                          body = p.decode('utf-8', errors='ignore')
                                   except:
                                       pass
-
                               codes = re.findall(r'\b(\d{6})\b', body)
                               if codes:
                                   code = codes[0]
-                                  print(f"  Found verification code: {code}")
+                                  print(f"  Code: {code}")
                                   mail.logout()
                                   return code
-
                       mail.logout()
                   except Exception as e:
-                      print(f"  IMAP error: {e}")
-
-                  print(f"  Waiting 5s...")
+                      print(f"  Error: {e}")
                   time.sleep(5)
-
               return None
 
           async def main():
@@ -105,16 +109,14 @@ jobs:
                   browser = await pw.chromium.launch(headless=True)
                   ctx = await browser.new_context(viewport={'width': 1440, 'height': 900})
                   page = await ctx.new_page()
-
                   await page.add_init_script('''() => {
                       Object.defineProperty(navigator, 'webdriver', {get: () => false});
                       window.chrome = {runtime: {}};
                   }''')
 
-                  print("Step 1: Going to Render login...")
+                  print("Step 1: Render login...")
                   await page.goto('https://dashboard.render.com/login', timeout=30000, wait_until='networkidle')
                   await page.wait_for_timeout(3000)
-
                   try:
                       btn = page.locator('button:has-text("Accept All")')
                       if await btn.count() > 0:
@@ -126,24 +128,21 @@ jobs:
                   await page.click('button:has-text("GitHub")')
                   await page.wait_for_timeout(5000)
                   print(f"OAuth URL: {page.url}")
-
                   await page.fill('input[name="login"]', os.environ['GH_EMAIL'])
                   await page.fill('input[name="password"]', os.environ['GH_PASSWORD'])
                   await page.click('input[type="submit"]')
                   print("Submitted GitHub login")
 
-                  print("Step 3: Handling verification...")
+                  print("Step 3: Verification...")
                   for i in range(30):
                       await page.wait_for_timeout(3000)
                       url = page.url
                       print(f"  [{i}] {url[:120]}")
-
                       if 'dashboard.render.com' in url and 'login' not in url and 'oauth' not in url:
                           print("*** ON DASHBOARD! ***")
                           break
-
                       if 'verified-device' in url:
-                          print("Device verification required - checking email...")
+                          print("Device verification - checking email...")
                           code = get_verification_code()
                           if code:
                               print(f"Entering code: {code}")
@@ -155,7 +154,6 @@ jobs:
                               print("Could not get verification code")
                               await page.screenshot(path='/tmp/verify_failed.png')
                               break
-
                       if 'authorize' in url or 'session' in url:
                           try:
                               auth_btn = page.locator('button:has-text("Authorize"), button[name="authorize"]')
@@ -166,7 +164,6 @@ jobs:
                                   continue
                           except:
                               pass
-
                           redirect_url = await page.evaluate('''() => {
                               var meta = document.querySelector('meta[http-equiv="refresh"]');
                               if (meta) {
@@ -189,9 +186,7 @@ jobs:
                       print("\nStep 4: Creating Blueprint...")
                       await page.goto('https://dashboard.render.com/blueprints/new', timeout=30000, wait_until='networkidle')
                       await page.wait_for_timeout(5000)
-                      print(f"Blueprint URL: {page.url}")
                       await page.screenshot(path='/tmp/render_blueprint.png')
-
                       buttons = await page.evaluate('''() => {
                           var items = document.querySelectorAll('a, button');
                           var result = [];
@@ -203,7 +198,6 @@ jobs:
                           return result;
                       }''')
                       print(f"Elements: {buttons}")
-
                       clicked_connect = False
                       for btn in buttons:
                           txt = btn['text'].lower()
@@ -217,9 +211,7 @@ jobs:
                                       clicked_connect = True
                                   except Exception as e:
                                       print(f"Click error: {e}")
-
                       await page.screenshot(path='/tmp/render_after_connect.png')
-
                       if 'github.com' in page.url:
                           print("On GitHub App install page...")
                           await page.screenshot(path='/tmp/github_install.png')
@@ -232,11 +224,9 @@ jobs:
                           except Exception as e:
                               print(f"Install click error: {e}")
                           await page.screenshot(path='/tmp/after_install.png')
-
                       await page.screenshot(path='/tmp/render_final.png')
                   else:
                       print("Failed to reach Render dashboard")
-
                   await browser.close()
 
           asyncio.run(main())
