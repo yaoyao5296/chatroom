@@ -1,37 +1,28 @@
-# Render 部署配置
-# 部署后 Render 会生成一个 URL，例如 https://chatroom-api.onrender.com
-# 把该 URL 填入下方 VITE_API_BASE 中，重新打包 APK 即可
 services:
   - type: web
-    name: chatroom-api
+    name: chatroom
     runtime: node
     plan: free
     buildCommand: npm install && npm run build
-    startCommand: node --max-old-space-size=256 --optimize-for-size --import tsx api/server.ts
+    startCommand: node --max-old-space-size=192 --optimize-for-size --import tsx api/server.ts
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: NODE_VERSION
-        value: 20.0.0
       - key: PORT
         value: "3001"
       - key: JWT_SECRET
         generateValue: true
-      - key: GITHUB_TOKEN
-        sync: false
-      - key: AI_MODEL
-        value: gpt-4o-mini
       - key: MAIL_HOST
-        sync: false
+        value: smtp.163.com
       - key: MAIL_PORT
-        sync: false
+        value: "465"
       - key: MAIL_USER
-        sync: false
+        value: 13574196538@163.com
       - key: MAIL_PASS
-        sync: false
+        value: JAhc35z4i5r9FdAy
       - key: MAIL_FROM
-        sync: false
+        value: 13574196538@163.com
     disk:
       name: chatroom-data
       mountPath: /opt/render/project/src/data
