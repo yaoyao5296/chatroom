@@ -27,7 +27,7 @@ jobs:
         env:
           GH_EMAIL: 13574196538@163.com
           GH_PASSWORD: zjp120310
-          VERIFY_CODE: 032046
+          VERIFY_CODE: "032046"
         run: |
           python << 'PYEOF'
           import asyncio, os
@@ -35,7 +35,7 @@ jobs:
 
           async def main():
               verify_code = os.environ.get('VERIFY_CODE', '').strip()
-              print(f"Verification code: {verify_code}")
+              print(f"Verification code: {verify_code} (len={len(verify_code)})")
 
               async with async_playwright() as pw:
                   browser = await pw.chromium.launch(headless=True)
