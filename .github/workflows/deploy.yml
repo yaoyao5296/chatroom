@@ -22,10 +22,76 @@ jobs:
         env:
           GH_EMAIL: 13574196538@163.com
           GH_PASSWORD: zjp120310
+          MAIL_USER: 13574196538@163.com
+          MAIL_PASS: JAhc35z4i5r9FdAy
         run: |
           python << 'PYEOF'
-          import asyncio, os
+          import asyncio, os, imaplib, email, re, time
+          from email.header import decode_header
           from playwright.async_api import async_playwright
+
+          def get_verification_code():
+              """Read GitHub verification code from 163.com email"""
+              print("Connecting to 163.com IMAP to get verification code...")
+              for attempt in range(15):
+                  try:
+                      mail = imaplib.IMAP4_SSL('imap.163.com', 993)
+                      mail.login(os.environ['MAIL_USER'], os.environ['MAIL_PASS'])
+                      mail.select('INBOX')
+
+                      # Search for GitHub verification emails
+                      status, messages = mail.search(None, 'FROM', 'noreply@github.com')
+                      if status == 'OK' and messages[0]:
+                          msg_ids = messages[0].split()
+                          # Get the latest one
+                          latest_id = msg_ids[-1]
+                          status, msg_data = mail.fetch(latest_id, '(RFC822)')
+                          if status == 'OK':
+                              msg = email.message_from_bytes(msg_data[0][1])
+
+                              # Decode subject
+                              subject, encoding = decode_header(msg['Subject'])[0]
+                              if isinstance(subject, bytes):
+                                  subject = subject.decode(encoding or 'utf-8', errors='ignore')
+
+                              print(f"Found email: {subject}")
+
+                              # Get body
+                              body = ''
+                              if msg.is_multipart():
+                                  for part in msg.walk():
+                                      content_type = part.get_content_type()
+                                      if content_type == 'text/plain' or content_type == 'text/html':
+                                          try:
+                                              payload = part.get_payload(decode=True)
+                                              if payload:
+                                                  body += payload.decode('utf-8', errors='ignore')
+                                          except:
+                                              pass
+                              else:
+                                  try:
+                                      payload = msg.get_payload(decode=True)
+                                      if payload:
+                                          body = payload.decode('utf-8', errors='ignore')
+                                  except:
+                                      pass
+
+                              # Find 6-digit code
+                              codes = re.findall(r'\b(\d{6})\b', body)
+                              if codes:
+                                  code = codes[0]
+                                  print(f"Found verification code: {code}")
+                                  mail.logout()
+                                  return code
+
+                      mail.logout()
+                  except Exception as e:
+                      print(f"IMAP attempt {attempt+1} error: {e}")
+
+                  print(f"Waiting for email... (attempt {attempt+1}/15)")
+                  time.sleep(5)
+
+              return None
 
           async def main():
               async with async_playwright() as pw:
@@ -67,7 +133,7 @@ jobs:
                   print("Submitted GitHub login")
 
                   print("Step 3: Handling verification...")
-                  for i in range(20):
+                  for i in range(30):
                       await page.wait_for_timeout(3000)
                       url = page.url
                       print(f"  [{i}] {url[:120]}")
@@ -76,9 +142,24 @@ jobs:
                           print("*** ON DASHBOARD! ***")
                           break
 
+                      # Check for device verification
+                      if 'verified-device' in url:
+                          print("Device verification required - checking email...")
+                          code = get_verification_code()
+                          if code:
+                              print(f"Entering code: {code}")
+                              await page.fill('input[name="code"], input[type="text"]', code)
+                              await page.click('button[type="submit"], input[type="submit"]')
+                              await page.wait_for_timeout(5000)
+                              continue
+                          else:
+                              print("Could not get verification code")
+                              await page.screenshot(path='/tmp/verify_failed.png')
+                              break
+
                       if 'authorize' in url or 'session' in url:
                           try:
-                              auth_btn = page.locator('button:has-text("Authorize"), button[name="authorize"], input[type="submit"][value="Authorize"]')
+                              auth_btn = page.locator('button:has-text("Authorize"), button[name="authorize"]')
                               if await auth_btn.count() > 0:
                                   await auth_btn.first.click()
                                   print("Clicked authorize")
@@ -102,11 +183,6 @@ jobs:
                               await page.goto(redirect_url, timeout=30000, wait_until='networkidle')
                               continue
 
-                      page_text = await page.evaluate('() => document.body.innerText')
-                      if 'verification' in page_text.lower() or 'device' in page_text.lower():
-                          print("Verification required - saving screenshot")
-                          await page.screenshot(path='/tmp/verify_needed.png')
-
                   print(f"Final URL: {page.url}")
                   await page.screenshot(path='/tmp/render_dashboard.png')
 
@@ -118,11 +194,11 @@ jobs:
                       await page.screenshot(path='/tmp/render_blueprint.png')
 
                       buttons = await page.evaluate('''() => {
-                          var items = document.querySelectorAll('a, button, input[type="submit"]');
+                          var items = document.querySelectorAll('a, button');
                           var result = [];
                           for (var i = 0; i < items.length; i++) {
                               var b = items[i];
-                              var text = (b.textContent || b.value || '').trim().slice(0, 100);
+                              var text = (b.textContent || '').trim().slice(0, 100);
                               if (text) result.push({tag: b.tagName, text: text, href: (b.href || '').slice(0, 120)});
                           }
                           return result;
