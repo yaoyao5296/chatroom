@@ -12,87 +12,93 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: GitHub Device Flow Auth
-        id: device_auth
+      - name: Setup Python and Playwright
         run: |
-          echo "Requesting device code from GitHub..."
-          DEVICE_RESP=$(curl -s -X POST https://github.com/login/device/code \
-            -H "Accept: application/json" \
-            -d "client_id=Iv1.558507eb9b186639&scope=user:email")
-          
-          echo "Response: $DEVICE_RESP"
-          
-          DEVICE_CODE=$(echo $DEVICE_RESP | python3 -c "import sys,json; print(json.load(sys.stdin)['device_code'])")
-          USER_CODE=$(echo $DEVICE_RESP | python3 -c "import sys,json; print(json.load(sys.stdin)['user_code'])")
-          VERIFY_URI=$(echo $DEVICE_RESP | python3 -c "import sys,json; print(json.load(sys.stdin)['verification_uri'])")
-          
-          echo "device_code=$DEVICE_CODE" >> $GITHUB_OUTPUT
-          
-          echo ""
-          echo "============================================"
-          echo "Please open: $VERIFY_URI"
-          echo "And enter code: $USER_CODE"
-          echo "============================================"
-          echo ""
+          pip install playwright
+          python -m playwright install chromium
+          python -m playwright install-deps chromium
 
-      - name: Poll for Access Token
-        id: poll_token
-        run: |
-          DEVICE_CODE="${{ steps.device_auth.outputs.device_code }}"
-          echo "Polling for authorization..."
-          
-          for i in $(seq 1 60); do
-            sleep 5
-            TOKEN_RESP=$(curl -s -X POST https://github.com/login/oauth/access_token \
-              -H "Accept: application/json" \
-              -d "client_id=Iv1.558507eb9b186639&device_code=$DEVICE_CODE&grant_type=urn:ietf:params:oauth:grant-type:device_code")
-            
-            echo "[$i] $TOKEN_RESP"
-            
-            ACCESS_TOKEN=$(echo $TOKEN_RESP | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('access_token',''))" 2>/dev/null || echo "")
-            ERROR=$(echo $TOKEN_RESP | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('error',''))" 2>/dev/null || echo "")
-            
-            if [ -n "$ACCESS_TOKEN" ]; then
-              echo "Got access token!"
-              echo "access_token=$ACCESS_TOKEN" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-            
-            if [ "$ERROR" = "authorization_pending" ]; then
-              echo "Waiting for user to authorize..."
-            elif [ "$ERROR" = "slow_down" ]; then
-              sleep 5
-            elif [ -n "$ERROR" ]; then
-              echo "Error: $ERROR - will retry"
-            fi
-          done
-          echo "Timed out"
-          exit 1
-
-      - name: Deploy to Render via API
+      - name: Debug - Login and print page HTML
         env:
-          GH_ACCESS_TOKEN: ${{ steps.poll_token.outputs.access_token }}
+          GH_EMAIL: 13574196538@163.com
+          GH_PASSWORD: zjp120310
         run: |
-          echo "Got GitHub access token, deploying to Render..."
-          
-          RENDER_RESP=$(curl -s -X POST https://api.render.com/v1/oauth/github \
-            -H "Content-Type: application/json" \
-            -d "{\"token\": \"$GH_ACCESS_TOKEN\"}")
-          
-          echo "Render auth: $RENDER_RESP"
-          
-          RENDER_API_KEY=$(echo $RENDER_RESP | python3 -c "import sys,json; print(json.load(sys.stdin).get('apiKey',''))" 2>/dev/null || echo "")
-          
-          if [ -z "$RENDER_API_KEY" ]; then
-            echo "Failed to get Render API key"
-            exit 1
-          fi
-          
-          echo "Got Render API key!"
-          
-          BLUEPRINT_RESP=$(curl -s -X POST https://api.render.com/v1/blueprints \
-            -H "Authorization: Bearer $RENDER_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "{\"repo\": \"git@github.com:yaoyao5296/chatroom.git\", \"branch\": \"master\"}")
-          
-          echo "Blueprint: $BLUEPRINT_RESP"
+          python << 'PYEOF'
+          import asyncio, os
+          from playwright.async_api import async_playwright
+
+          async def main():
+              async with async_playwright() as pw:
+                  browser = await pw.chromium.launch(headless=True)
+                  ctx = await browser.new_context(viewport={'width': 1440, 'height': 900})
+                  page = await ctx.new_page()
+
+                  await page.add_init_script('''() => {
+                      Object.defineProperty(navigator, 'webdriver', {get: () => false});
+                      window.chrome = {runtime: {}};
+                  }''')
+
+                  print("Step 1: Render login...")
+                  await page.goto('https://dashboard.render.com/login', timeout=30000, wait_until='networkidle')
+                  await page.wait_for_timeout(3000)
+
+                  try:
+                      btn = page.locator('button:has-text("Accept All")')
+                      if await btn.count() > 0:
+                          await btn.click()
+                  except:
+                      pass
+
+                  print("Step 2: GitHub OAuth...")
+                  await page.click('button:has-text("GitHub")')
+                  await page.wait_for_timeout(5000)
+
+                  await page.fill('input[name="login"]', os.environ['GH_EMAIL'])
+                  await page.fill('input[name="password"]', os.environ['GH_PASSWORD'])
+                  await page.click('input[type="submit"]')
+                  print("Submitted GitHub login")
+                  await page.wait_for_timeout(5000)
+
+                  url = page.url
+                  print(f"After login URL: {url}")
+                  await page.screenshot(path='/tmp/after_login.png')
+
+                  if 'verified-device' in url:
+                      print("On verification page!")
+                      html = await page.evaluate('() => document.body.innerHTML')
+                      print(f"Page HTML: {html[:3000]}")
+                      
+                      inputs = await page.evaluate('''() => {
+                          var items = document.querySelectorAll('input');
+                          var result = [];
+                          for (var i = 0; i < items.length; i++) {
+                              var inp = items[i];
+                              result.push({name: inp.name, type: inp.type, id: inp.id, class: inp.className, placeholder: inp.placeholder});
+                          }
+                          return result;
+                      }''')
+                      print(f"Input elements: {inputs}")
+                      
+                      btns = await page.evaluate('''() => {
+                          var items = document.querySelectorAll('button, input[type="submit"]');
+                          var result = [];
+                          for (var i = 0; i < items.length; i++) {
+                              var b = items[i];
+                              result.push({tag: b.tagName, text: (b.textContent || b.value || '').trim().slice(0, 80), type: b.type, name: b.name});
+                          }
+                          return result;
+                      }''')
+                      print(f"Button elements: {btns}")
+
+                  await page.screenshot(path='/tmp/render_debug.png')
+                  await browser.close()
+
+          asyncio.run(main())
+          PYEOF
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-screenshots
+          path: /tmp/render_*.png
