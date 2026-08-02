@@ -9,16 +9,14 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Setup Python and Playwright
+      - uses: actions/checkout@v4
+      - name: Setup
         run: |
           pip install playwright
           python -m playwright install chromium
           python -m playwright install-deps chromium
 
-      - name: Trigger login to get verification code
+      - name: Deploy to Render
         env:
           GH_EMAIL: 13574196538@163.com
           GH_PASSWORD: zjp120310
@@ -38,35 +36,81 @@ jobs:
                       window.chrome = {runtime: {}};
                   }''')
 
-                  print("Going to Render login...")
+                  print("Login...")
                   await page.goto('https://dashboard.render.com/login', timeout=30000, wait_until='networkidle')
                   await page.wait_for_timeout(3000)
+                  try:
+                      if await page.locator('button:has-text("Accept All")').count() > 0:
+                          await page.click('button:has-text("Accept All")')
+                  except: pass
 
-                  print("Clicking GitHub login...")
                   await page.click('button:has-text("GitHub")')
                   await page.wait_for_timeout(5000)
-
-                  print("Filling GitHub credentials...")
                   await page.fill('input[name="login"]', os.environ['GH_EMAIL'])
                   await page.fill('input[name="password"]', os.environ['GH_PASSWORD'])
                   await page.click('input[type="submit"]')
 
-                  print("Waiting for verification page...")
-                  for i in range(20):
+                  for i in range(30):
                       await page.wait_for_timeout(3000)
                       url = page.url
                       print(f"  [{i}] {url[:100]}")
-                      if 'verified-device' in url:
-                          print("*** VERIFICATION CODE EMAIL SENT! ***")
-                          print("Please check your email 13574196538@163.com")
-                          await page.screenshot(path='/tmp/verify_page.png')
-                          break
+
                       if 'dashboard.render.com' in url and 'login' not in url:
-                          print("*** ON DASHBOARD! ***")
+                          print("DASHBOARD!")
                           break
 
-                  print(f"Final URL: {page.url}")
-                  await page.screenshot(path='/tmp/render_final.png')
+                      text = await page.evaluate('() => document.body.innerText')
+
+                      if 'verified-device' in url:
+                          print(f"NEED CODE: {text[:300]}")
+                          await page.screenshot(path='/tmp/verify.png')
+                          break
+
+                      if 'github.com/session' in url:
+                          if 'incorrect' in text.lower() or 'try again' in text.lower():
+                              print(f"LOGIN ERROR: {text[:200]}")
+                              break
+                          # Look for any auth button
+                          btns = await page.evaluate('''() =>
+                              [...document.querySelectorAll('button')].map(b =>
+                                  ({t: (b.textContent||'').trim().slice(0,40)})
+                              ).filter(b => b.t)
+                          ''')
+                          print(f"Session buttons: {btns}")
+
+                      if 'authorize' in url:
+                          try:
+                              await page.click('button:has-text("Authorize")')
+                              await page.wait_for_timeout(5000)
+                          except: pass
+
+                  print(f"Final: {page.url}")
+                  await page.screenshot(path='/tmp/final.png')
+
+                  if 'dashboard.render.com' in page.url and 'login' not in page.url:
+                      print("Creating Blueprint...")
+                      await page.goto('https://dashboard.render.com/blueprints/new', timeout=30000, wait_until='networkidle')
+                      await page.wait_for_timeout(5000)
+                      await page.screenshot(path='/tmp/blueprint.png')
+
+                      btns = await page.evaluate('''() =>
+                          [...document.querySelectorAll('a,button')].map(b =>
+                              ({t: (b.textContent||'').trim().slice(0,60), h: (b.href||'').slice(0,80)})
+                          ).filter(b => b.t)
+                      ''')
+                      print(f"Blueprint: {btns}")
+
+                      for b in btns:
+                          t = b['t'].lower()
+                          if 'connect' in t or 'github' in t or 'install' in t:
+                              try:
+                                  await page.click(f'button:has-text("{b["t"]}"), a:has-text("{b["t"]}")')
+                                  await page.wait_for_timeout(5000)
+                                  print(f"Clicked: {b['t']} -> {page.url}")
+                              except: pass
+
+                      await page.screenshot(path='/tmp/connected.png')
+
                   await browser.close()
 
           asyncio.run(main())
@@ -76,5 +120,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: render-screenshots
-          path: /tmp/render_*.png
+          name: screenshots
+          path: /tmp/*.png
