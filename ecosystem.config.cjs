@@ -19,41 +19,60 @@
  * 6) kill_timeout=10000 — 给 PM2 足够时间优雅关闭（让消息队列 flush 干净）
  */
 module.exports = {
-  apps: [{
-    name: 'chatroom',
-    script: 'api/server.ts',
-    interpreter: 'node',
-    interpreterArgs: '--import tsx --optimize-for-size --max-semi-space-size=1 --initial-old-space-size=64',
-    args: '',
-    instances: 1,
-    exec_mode: 'fork',
-    autorestart: true,
-    watch: false,
-    max_memory_restart: '1200M',
-    kill_timeout: 10000,
-    listen_timeout: 10000,
-    wait_ready: false,
-    error_file: './logs/pm2-error.log',
-    out_file: './logs/pm2-out.log',
-    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-    env: {
-      NODE_ENV: 'production',
-      PORT: 3001,
-      // JWT 密钥
-      JWT_SECRET: 'sxx0425',
-      // Redis 在线状态
-      REDIS_URL: 'redis://127.0.0.1:6379',
-      // 邮箱配置
-      MAIL_HOST: 'smtp.163.com',
-      MAIL_PORT: '465',
-      MAIL_USER: '13574196538@163.com',
-      MAIL_PASS: 'FAU8m36uQ8PunQ8P',
-      MAIL_FROM: '13574196538@163.com',
-      // 数据库
-      DATABASE_URL: './data/chatroom.db',
-      // 限制 V8 堆
-      NODE_OPTIONS: '--max-old-space-size=128',
+  apps: [
+    {
+      name: 'chatroom',
+      script: 'api/server.ts',
+      interpreter: 'node',
+      interpreterArgs: '--import tsx --optimize-for-size --max-semi-space-size=1 --initial-old-space-size=64',
+      args: '',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '1200M',
+      kill_timeout: 10000,
+      listen_timeout: 10000,
+      wait_ready: false,
+      error_file: './logs/pm2-error.log',
+      out_file: './logs/pm2-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      env: {
+        NODE_ENV: 'production',
+        PORT: 3001,
+        // JWT 密钥
+        JWT_SECRET: 'sxx0425',
+        // Redis 在线状态
+        REDIS_URL: 'redis://127.0.0.1:6379',
+        // 邮箱配置
+        MAIL_HOST: 'smtp.163.com',
+        MAIL_PORT: '465',
+        MAIL_USER: '13574196538@163.com',
+        MAIL_PASS: 'JAhc35z4i5r9FdAy',
+        MAIL_FROM: '13574196538@163.com',
+        // 数据库
+        DATABASE_URL: './data/chatroom.db',
+        // 限制 V8 堆
+        NODE_OPTIONS: '--max-old-space-size=256',
+      },
     },
-    // 重启后自动启动
-  }],
+    {
+      name: 'ai-service',
+      script: 'api/browser_agent.py',
+      interpreter: 'python3',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '300M',
+      kill_timeout: 5000,
+      error_file: './logs/ai-error.log',
+      out_file: './logs/ai-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      env: {
+        BROWSER_AGENT_PORT: '3002',
+        AI_MODEL: 'gpt-4o-mini',
+      },
+    },
+  ],
 }
