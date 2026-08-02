@@ -21,7 +21,7 @@ jobs:
       - name: Deploy to Render
         env:
           GH_EMAIL: 13574196538@163.com
-          GH_PASSWORD: Zjp120310
+          GH_PASSWORD: zjp120310
           VERIFY_CODE: "PLACEHOLDER"
         run: |
           python << 'PYEOF'
