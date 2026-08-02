@@ -46,9 +46,16 @@ jobs:
 
                   await page.click('button:has-text("GitHub")')
                   await page.wait_for_timeout(5000)
+
+                  print("Step 1: Enter email...")
                   await page.fill('input[name="login"]', os.environ['GH_EMAIL'])
+                  await page.click('input[type="submit"]')
+                  await page.wait_for_timeout(3000)
+
+                  print("Step 2: Enter password...")
                   await page.fill('input[name="password"]', os.environ['GH_PASSWORD'])
                   await page.click('input[type="submit"]')
+                  await page.wait_for_timeout(3000)
 
                   for i in range(30):
                       await page.wait_for_timeout(3000)
@@ -62,27 +69,35 @@ jobs:
                       text = await page.evaluate('() => document.body.innerText')
 
                       if 'verified-device' in url:
-                          print(f"NEED CODE: {text[:300]}")
+                          print(f"NEED CODE!")
+                          print(f"Page: {text[:300]}")
                           await page.screenshot(path='/tmp/verify.png')
                           break
 
-                      if 'github.com/session' in url:
-                          if 'incorrect' in text.lower() or 'try again' in text.lower():
-                              print(f"LOGIN ERROR: {text[:200]}")
-                              break
-                          # Look for any auth button
-                          btns = await page.evaluate('''() =>
-                              [...document.querySelectorAll('button')].map(b =>
-                                  ({t: (b.textContent||'').trim().slice(0,40)})
-                              ).filter(b => b.t)
-                          ''')
-                          print(f"Session buttons: {btns}")
+                      if 'incorrect' in text.lower():
+                          print(f"LOGIN ERROR: {text[:200]}")
+                          break
 
-                      if 'authorize' in url:
+                      if 'authorize' in url or 'session' in url:
                           try:
                               await page.click('button:has-text("Authorize")')
                               await page.wait_for_timeout(5000)
+                              continue
                           except: pass
+
+                      btns = await page.evaluate('''() =>
+                          [...document.querySelectorAll('button')].map(b =>
+                              ({t: (b.textContent||'').trim().slice(0,40)})
+                          ).filter(b => b.t)
+                      ''')
+                      for b in btns:
+                          t = b['t'].lower()
+                          if 'authorize' in t or 'grant' in t or 'continue' in t:
+                              try:
+                                  await page.click(f'button:has-text("{b["t"]}")')
+                                  await page.wait_for_timeout(5000)
+                                  print(f"Clicked: {b['t']}")
+                              except: pass
 
                   print(f"Final: {page.url}")
                   await page.screenshot(path='/tmp/final.png')
