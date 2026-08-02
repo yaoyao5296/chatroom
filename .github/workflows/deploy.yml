@@ -19,21 +19,14 @@ jobs:
 
       - name: Deploy to Render
         env:
-          GH_EMAIL: 13574196538@163.com
-          GH_PASSWORD: zjp120310
-          GH_PAT: ${{ secrets.GH_PAT || '' }}
+          RENDER_EMAIL: 13574196538@163.com
+          RENDER_PASSWORD: zjp120310
         run: |
-          if [ -n "$GH_PAT" ]; then
-            echo "$GH_PAT" | gh auth login --with-token 2>/dev/null || true
-          fi
-
           python << 'PYEOF'
           import asyncio, os
           from playwright.async_api import async_playwright
 
           async def main():
-              github_token = os.environ.get('GH_PAT', '') or os.environ.get('GITHUB_TOKEN', '')
-
               async with async_playwright() as pw:
                   browser = await pw.chromium.launch(headless=True)
                   ctx = await browser.new_context(viewport={'width': 1440, 'height': 900})
@@ -44,35 +37,38 @@ jobs:
                       window.chrome = {runtime: {}};
                   }''')
 
-                  print("Step 1: Go to GitHub...")
-                  await page.goto('https://github.com', timeout=30000, wait_until='networkidle')
-                  await page.wait_for_timeout(2000)
-                  if github_token:
-                      await page.evaluate('''(token) => {
-                          document.cookie = "user_session=" + token + "; path=/; domain=.github.com";
-                      }''', github_token)
-                  await page.screenshot(path='/tmp/github_home.png')
-
-                  print("Step 2: Go to Render...")
+                  print("Step 1: Try Render direct email login...")
                   await page.goto('https://dashboard.render.com/login', timeout=30000, wait_until='networkidle')
                   await page.wait_for_timeout(3000)
-
-                  try:
-                      btn = page.locator('button:has-text("Accept All")')
-                      if await btn.count() > 0:
-                          await btn.click()
-                          await page.wait_for_timeout(1000)
-                  except:
-                      pass
-
+                  
                   await page.screenshot(path='/tmp/render_login.png')
-
-                  print("Step 3: Click GitHub OAuth...")
-                  await page.click('button:has-text("GitHub")')
-                  await page.wait_for_timeout(5000)
-
-                  print("Step 4: Check result...")
-                  for i in range(20):
+                  
+                  # Check for email input on the login page
+                  email_input = page.locator('input[type="email"], input[name="email"], input[placeholder*="email" i]')
+                  has_email = await email_input.count() > 0
+                  print(f"Has email input: {has_email}")
+                  
+                  if has_email:
+                      print("Direct email login found!")
+                      await email_input.fill(os.environ['RENDER_EMAIL'])
+                      await page.wait_for_timeout(1000)
+                      
+                      pwd_input = page.locator('input[type="password"]')
+                      if await pwd_input.count() > 0:
+                          await pwd_input.fill(os.environ['RENDER_PASSWORD'])
+                          await page.wait_for_timeout(500)
+                      
+                      submit_btn = page.locator('button[type="submit"], input[type="submit"]')
+                      if await submit_btn.count() > 0:
+                          await submit_btn.first.click()
+                          await page.wait_for_timeout(5000)
+                          print(f"After login: {page.url[:80]}")
+                  else:
+                      print("No direct email login, checking page structure...")
+                      await page.screenshot(path='/tmp/render_no_email.png')
+                  
+                  print("\nStep 4: Wait for result...")
+                  for i in range(30):
                       await page.wait_for_timeout(3000)
                       url = page.url
                       print(f"  [{i}] {url[:120]}")
@@ -94,85 +90,53 @@ jobs:
 
                       if 'login' in url or 'session' in url:
                           text = await page.evaluate('() => document.body.innerText')
-                          print(f"Page: {text[:200]}")
-                          await page.screenshot(path='/tmp/login_page.png')
-
+                          if 'incorrect' in text.lower() or 'Invalid' in text:
+                              print(f"LOGIN ERROR: {text[:200]}")
+                              break
+                          
+                          # Try to fill login form
                           try:
                               login_field = page.locator('input[name="login"]')
                               if await login_field.count() > 0:
-                                  await login_field.fill(os.environ['GH_EMAIL'])
+                                  await login_field.fill(os.environ['RENDER_EMAIL'])
                                   await page.wait_for_timeout(1000)
                                   await page.click('input[type="submit"]')
                                   await page.wait_for_timeout(3000)
-                                  print(f"After email: {page.url[:80]}")
 
                                   pwd_field = page.locator('input[name="password"]')
                                   if await pwd_field.count() > 0:
-                                      await pwd_field.fill(os.environ['GH_PASSWORD'])
+                                      await pwd_field.fill(os.environ['RENDER_PASSWORD'])
                                       await page.wait_for_timeout(500)
                                       await page.click('input[type="submit"]')
                                       await page.wait_for_timeout(5000)
-                                      print(f"After password: {page.url[:80]}")
                           except Exception as e:
                               print(f"Fill error: {e}")
-
-                      if 'signup' in url.lower():
-                          print("On signup page...")
-                          signin = page.locator('a[href*="/login"]')
-                          if await signin.count() > 0:
-                              await signin.first.click()
-                              await page.wait_for_timeout(5000)
-                              print(f"Clicked sign in: {page.url[:80]}")
-                              continue
 
                   print(f"Final URL: {page.url}")
                   await page.screenshot(path='/tmp/render_final.png')
 
                   if 'dashboard.render.com' in page.url and 'login' not in page.url:
-                      print("\nStep 5: Creating Blueprint...")
+                      print("\nStep 5: On Dashboard - creating Blueprint...")
                       await page.goto('https://dashboard.render.com/blueprints/new', timeout=30000, wait_until='networkidle')
                       await page.wait_for_timeout(5000)
                       await page.screenshot(path='/tmp/render_blueprint.png')
 
-                      buttons = await page.evaluate('''() => {
-                          var items = document.querySelectorAll('a, button');
-                          var result = [];
-                          for (var i = 0; i < items.length; i++) {
-                              var b = items[i];
-                              var text = (b.textContent || '').trim().slice(0, 100);
-                              if (text) result.push({tag: b.tagName, text: text, href: (b.href || '').slice(0, 120)});
-                          }
-                          return result;
+                      blueprint_text = await page.evaluate('() => document.body.innerText')
+                      print(f"Blueprint page: {blueprint_text[:300]}")
+                      
+                      # Try to find and click connect repo buttons
+                      btns = await page.evaluate('''() => {
+                          return [...document.querySelectorAll('a, button')].map(b => ({
+                              text: (b.textContent || '').trim().slice(0, 100),
+                              href: (b.href || '').slice(0, 120)
+                          })).filter(b => b.text)
                       }''')
-                      print(f"Elements: {buttons}")
+                      for b in btns:
+                          txt = b['text'].lower()
+                          if 'connect' in txt or 'github' in txt or 'new blue' in txt:
+                              print(f"Found: {b['text']}")
 
-                      for btn in buttons:
-                          txt = btn['text'].lower()
-                          if 'connect' in txt or 'github' in txt or 'install' in txt:
-                              print(f"Clicking: {btn['text']}")
-                              try:
-                                  await page.click(f'button:has-text("{btn["text"]}"), a:has-text("{btn["text"]}")')
-                                  await page.wait_for_timeout(5000)
-                                  print(f"After click: {page.url[:80]}")
-                              except Exception as e:
-                                  print(f"Click error: {e}")
-
-                      await page.screenshot(path='/tmp/render_connected.png')
-
-                      if 'github.com' in page.url:
-                          print("On GitHub App install page...")
-                          await page.screenshot(path='/tmp/github_install.png')
-                          try:
-                              install_btn = page.locator('button:has-text("Install"), input[type="submit"][value*="Install"]')
-                              if await install_btn.count() > 0:
-                                  await install_btn.first.click()
-                                  print("Clicked Install")
-                                  await page.wait_for_timeout(5000)
-                          except Exception as e:
-                              print(f"Install click error: {e}")
-                          await page.screenshot(path='/tmp/after_install.png')
-
-                      await page.screenshot(path='/tmp/render_final.png')
+                      await page.screenshot(path='/tmp/render_blueprint_final.png')
                   else:
                       print("Failed to reach Render dashboard")
 
