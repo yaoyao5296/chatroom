@@ -1,4 +1,5 @@
 name: Build ChatRoom Signed APK (for F-Droid)
+
 on:
   push:
     branches: [ main, master ]
@@ -15,12 +16,12 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node 20
+      - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -28,10 +29,11 @@ jobs:
 
       - name: npm ci + build 前端 dist
         run: |
+          set -e
           if [ -f package-lock.json ]; then npm ci; else npm install; fi
-          npm run build || (ls dist 2>/dev/null && echo "dist already exists, skipping build")
+          npm run build 2>&1 | tail -30 || (ls dist 2>/dev/null && echo "dist exists, skip")
           echo "dist size: $(du -sh dist | cut -f1)"
-          ls dist/index.html
+          [ -f dist/index.html ] && echo "OK dist/index.html"
 
       - name: Setup Java 17 (Temurin)
         uses: actions/setup-java@v4
@@ -39,33 +41,32 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Setup Gradle (Wrapper) + 国内 Maven 镜像加速
+      - name: Setup Gradle (Wrapper)
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: wrapper
           cache-write-only: true
 
-      - name: 写入 keystore + keystore.properties (从 Secrets)
+      - name: 写入 keystore + keystore.properties
         env:
           CHATROOM_KEYSTORE_B64: ${{ secrets.CHATROOM_KEYSTORE_B64 }}
           STORE_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASS: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -e
-          # 优先用 Secrets；如果为空用 Termux 默认密码占位（F-Droid 自己会重签，不影响 RFP）
           if [ -n "$CHATROOM_KEYSTORE_B64" ]; then
             echo "$CHATROOM_KEYSTORE_B64" | base64 -d > chatroom-release.keystore
             SP=${STORE_PASS:-Zjp120310}
             KP=${KEY_PASS:-Zjp120310}
           else
-            # 没有 Secrets 时生成临时调试 keystore（别名 chatroom），方便测试
             keytool -genkeypair -v \
               -keystore chatroom-release.keystore \
               -alias chatroom \
               -keyalg RSA -keysize 2048 -validity 10000 \
               -storepass Zjp120310 -keypass Zjp120310 \
-              -dname "CN=ChatRoom, OU=Dev, O=ChatRoom, L=CN, ST=CN, C=CN"
-            SP=Zjp120310; KP=Zjp120310
+              -dname "CN=ChatRoom, OU=Dev, O=ChatRoom, L=CN, ST=CN, C=CN" 2>&1 | tail -5
+            SP=Zjp120310
+            KP=Zjp120310
           fi
           cat > android/keystore.properties <<EOF
           storeFile=$(pwd)/chatroom-release.keystore
@@ -73,17 +74,15 @@ jobs:
           keyAlias=chatroom
           keyPassword=$KP
           EOF
-          cat android/keystore.properties
-          ls -lh chatroom-release.keystore
-          keytool -list -keystore chatroom-release.keystore -storepass "$SP" | head -5
+          ls -lh chatroom-release.keystore android/keystore.properties
+          keytool -list -keystore chatroom-release.keystore -storepass "$SP" 2>&1 | head -6
 
-      - name: 安装 Capacitor CLI + 初始化 Android + Cap Sync
+      - name: 安装 Capacitor + npx cap sync android
         run: |
           set -e
           if ! grep -q '"@capacitor/cli"' package.json; then
-            npm install --save-dev @capacitor/cli @capacitor/core @capacitor/android
+            npm install --save-dev @capacitor/cli @capacitor/core @capacitor/android 2>&1 | tail -10
           fi
-          # 写/覆盖 capacitor.config.ts
           cat > capacitor.config.ts <<'CAP'
           import { CapacitorConfig } from '@capacitor/cli';
           const config: CapacitorConfig = {
@@ -94,29 +93,31 @@ jobs:
           };
           export default config;
           CAP
-          # android 目录：有就 sync，没有就 add
+          cat capacitor.config.ts
           if [ -d android/app/src/main ]; then
-            npx cap sync android
+            npx cap sync android 2>&1 | tail -20
           else
-            echo "y" | npx cap init ChatRoom com.chatroom.app --web-dir=dist || true
-            echo "y" | npx cap add android || true
-            npx cap sync android
+            (npx cap init ChatRoom com.chatroom.app --web-dir=dist < /dev/null || true) 2>&1 | tail -10
+            (npx cap add android < /dev/null || true) 2>&1 | tail -10
+            npx cap sync android 2>&1 | tail -20
           fi
-          ls android/app
+          [ -f android/app/build.gradle ] && echo "OK: android/app/build.gradle"
 
-      - name: 注入 Gradle 签名配置到 android/app/build.gradle（别名 chatroom，安全去重）        run: |
+      - name: 注入 Gradle 签名（去重，无重复变量）
+        run: |
           set -e
           BF=android/app/build.gradle
-          [ -f "" ] || { echo "missing build.gradle"; exit 1; }
-          # 若已经存在 signingConfigs.release，则跳过（本地仓库已注入）
-          if grep -qF "signingConfigs" "" && grep -qF "signingConfig signingConfigs.release" ""; then
-            echo "✅ 签名已存在于 build.gradle，跳过注入"
-            head -30 ""
+          [ -f "$BF" ] || { echo "❌ 找不到 $BF"; ls android/app; exit 1; }
+          # 已经注入过就跳过
+          if grep -qF "signingConfig signingConfigs.release" "$BF" \
+             && ( grep -qF "keyAlias chatroomKs" "$BF" || grep -qF 'keyAlias keystoreProperties["keyAlias"]' "$BF" ); then
+            echo "✅ build.gradle 已包含签名配置，跳过注入"
+            head -20 "$BF"
             exit 0
           fi
-          # 否则：整份 build.gradle 重写为标准模板（避免 Python 注入的变量重复问题）
-          cp "" ".bak.ci"
-          cat > "" <<'GRADLE'
+          # 否则：先备份 → 写一份没有重复变量的干净模板
+          cp "$BF" "$BF.bak.ci"
+          cat > "$BF" <<'GRADLE'
           apply plugin: 'com.android.application'
           def chatroomKsf = rootProject.file("keystore.properties")
           def chatroomKs = new Properties()
@@ -164,9 +165,9 @@ jobs:
           dependencies {
               implementation fileTree(include: ['*.jar'], dir: 'libs')
               implementation project(':capacitor-android')
-              testImplementation "junit:junit:"
-              androidTestImplementation "androidx.test.ext:junit:"
-              androidTestImplementation "androidx.test.espresso:espresso-core:"
+              testImplementation "junit:junit:$junitVersion"
+              androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+              androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
               implementation project(':capacitor-cordova-android-plugins')
           }
           apply from: 'capacitor.build.gradle'
@@ -177,37 +178,37 @@ jobs:
               logger.info("google-services.json not found")
           }
           GRADLE
-          echo "✅ build.gradle 已重写安全模板（无重复变量）"
-          head -30 ""
+          echo "✅ build.gradle 已重写（前缀 chatroomKsf / chatroomKs，无重复变量风险）"
+          head -25 "$BF"
 
-      - name: Gradle assembleRelease（生成签名 APK）
+      - name: Gradle assembleRelease
         run: |
           set -e
           cd android
           chmod +x ./gradlew
-          ./gradlew --no-daemon --parallel --stacktrace clean assembleRelease
-          echo "=== APK 产物 ==="
+          ./gradlew --no-daemon --parallel --stacktrace clean assembleRelease 2>&1 | tail -60
+          echo ""
+          echo "📦 APK 产物:"
           find app/build/outputs/apk -name "*.apk" -exec ls -lh {} \;
 
-      - name: 重命名 chatroom.apk + 上传 Artifacts
+      - name: 重命名 → release/chatroom.apk
         run: |
-          APK_SRC=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
-          [ -n "$APK_SRC" ] || { echo "APK 没找到"; find android/app/build -name "*.apk"; exit 1; }
+          set -e
+          APK_IN=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          [ -n "$APK_IN" ] || { echo "❌ 找不到 release APK"; find android/app/build -name "*.apk"; exit 1; }
           mkdir -p release
-          cp "$APK_SRC" release/chatroom.apk
+          cp "$APK_IN" release/chatroom.apk
           ls -lh release/chatroom.apk
           sha256sum release/chatroom.apk
-        env:
-          ACTIONS_ALLOW_UNSECURE_COMMANDS: true
 
-      - name: Upload Artifact (chatroom-signed-apk)
+      - name: Upload Artifact chatroom-signed-apk
         uses: actions/upload-artifact@v4
         with:
           name: chatroom-signed-apk
           path: release/chatroom.apk
           if-no-files-found: error
 
-      - name: GitHub Release 上传 chatroom.apk（打 tag v* 时触发）
+      - name: GitHub Release 上传 chatroom.apk (tag v* 触发)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
