@@ -1,0 +1,3 @@
+- Initial public release of ChatRoom for Android.
+- Real-time chat rooms with WebSocket.
+- Responsive UI for phones and tablets.

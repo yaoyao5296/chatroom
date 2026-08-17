@@ -10,8 +10,8 @@ import { getApiBaseUrl } from './api'
 import { isAndroid, isNativeApp } from './platform'
 
 // 备用服务器地址（Socket.io 连接）
-const IPV6_SOCKET = 'http://[2409:8a50:1035:6d50:5228:73ff:fe48:f26f]:3001'
-const IPV4_SOCKET = 'http://120.228.82.170:3001'
+const IPV6_SOCKET = (typeof window !== 'undefined' && window.location.hostname) ? (window.location.protocol + '//' + window.location.host) : ''
+const IPV4_SOCKET = (typeof window !== 'undefined' && window.location.hostname) ? (window.location.protocol + '//' + window.location.host) : ''
 
 let socket: Socket | null = null
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null

@@ -1,0 +1,3 @@
+- ChatRoom Android 首次公开发布
+- 基于 WebSocket 的实时聊天室
+- 适配手机与平板界面

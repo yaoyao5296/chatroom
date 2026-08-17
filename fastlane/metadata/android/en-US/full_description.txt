@@ -1,0 +1,10 @@
+ChatRoom is a lightweight, real-time chat web application packaged as an Android app.
+It supports live messaging, public chat rooms, and works over both IPv4 and IPv6.
+The frontend is built with Vite + React, the backend uses Node.js + SQLite.
+
+Features:
+- Real-time messaging via WebSocket
+- Responsive UI for mobile and tablet
+- Works offline with cache (PWA-like assets)
+- Light / dark themes
+- No account required — join a room and chat

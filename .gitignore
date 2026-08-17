@@ -54,3 +54,8 @@ node_modules/
 
 # iOS build artifacts
 ios/node_modules
+keystore.properties
+dist/
+*.bak
+.url-*.txt
+cf-*.sh
