@@ -137,7 +137,7 @@ jobs:
                   mavenCentral()
               }
               dependencies {
-                  classpath 'com.android.tools.build:gradle:8.10.2'
+                  classpath 'com.android.tools.build:gradle:8.9.1'
               }
           }
           allprojects {
@@ -148,7 +148,7 @@ jobs:
           }
           task clean(type: Delete) { delete rootProject.buildDir }
           GRADLEROOT
-            echo "✅ 根 build.gradle 已重写（variables.gradle + AGP 8.10.2 classpath）"
+            echo "✅ 根 build.gradle 已重写（variables.gradle + AGP 8.9.1 classpath）"
           else
             echo "✅ 根 build.gradle 已正确（AGP $AGP_VER，包含 variables.gradle），跳过"
           fi
