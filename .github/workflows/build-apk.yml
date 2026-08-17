@@ -35,11 +35,11 @@ jobs:
           echo "dist size: $(du -sh dist | cut -f1)"
           [ -f dist/index.html ] && echo "OK dist/index.html"
 
-      - name: Setup Java 17 (Temurin)
+      - name: Setup Java 21 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
 
       - name: Setup Gradle (Wrapper)
         uses: gradle/actions/setup-gradle@v4
@@ -106,10 +106,28 @@ jobs:
       - name: 修复根 build.gradle + 补丁注入签名
         run: |
           set -e
-          # ===== (A) 修复根 build.gradle：apply variables + AGP classpath =====
+          # ===== (A) 修复根 build.gradle：apply variables + AGP 8.10.2 classpath =====
+          # （androidx.core 1.17+ / activity 1.11+ 需要 AGP ≥ 8.9.1；Capacitor v8 用 JDK 21）
           RBF=android/build.gradle
           [ -f "$RBF" ] || { echo "❌ 找不到 $RBF"; ls android; exit 1; }
-          if ! grep -qF "com.android.tools.build:gradle" "$RBF" || ! grep -qF "variables.gradle" "$RBF"; then
+          # 版本 ≥ 8.9 才满足 AAR metadata 要求
+          NEED_REWRITE=0
+          if ! grep -qF "variables.gradle" "$RBF"; then
+            NEED_REWRITE=1
+          fi
+          AGP_VER=$(grep -oE "com\.android\.tools\.build:gradle:[0-9.]+" "$RBF" | head -1 | cut -d: -f3 || true)
+          if [ -z "$AGP_VER" ]; then
+            NEED_REWRITE=1
+          else
+            # 简单版本比较：8.9/8.10 满足；8.5/8.6/8.7/8.8 不满足
+            MAJ=$(echo "$AGP_VER" | cut -d. -f1)
+            MIN=$(echo "$AGP_VER" | cut -d. -f2)
+            if [ "$MAJ" -lt 8 ] || { [ "$MAJ" -eq 8 ] && [ "$MIN" -lt 9 ]; }; then
+              echo "ℹ️ 当前 AGP=$AGP_VER 低于 8.9，需要升级"
+              NEED_REWRITE=1
+            fi
+          fi
+          if [ "$NEED_REWRITE" -eq 1 ]; then
             cp "$RBF" "$RBF.bak.ci"
             cat > "$RBF" <<'GRADLEROOT'
           apply from: "variables.gradle"
@@ -119,7 +137,7 @@ jobs:
                   mavenCentral()
               }
               dependencies {
-                  classpath 'com.android.tools.build:gradle:8.5.2'
+                  classpath 'com.android.tools.build:gradle:8.10.2'
               }
           }
           allprojects {
@@ -130,9 +148,9 @@ jobs:
           }
           task clean(type: Delete) { delete rootProject.buildDir }
           GRADLEROOT
-            echo "✅ 根 build.gradle 已修复（variables.gradle + AGP 8.5.2 classpath）"
+            echo "✅ 根 build.gradle 已重写（variables.gradle + AGP 8.10.2 classpath）"
           else
-            echo "✅ 根 build.gradle 已正确，跳过"
+            echo "✅ 根 build.gradle 已正确（AGP $AGP_VER，包含 variables.gradle），跳过"
           fi
           echo "===== 根 build.gradle 前 20 行 ====="
           head -20 "$RBF"
