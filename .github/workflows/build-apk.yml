@@ -243,10 +243,27 @@ jobs:
 
       - name: Gradle assembleRelease
         run: |
-          set -e
+          set -eo pipefail
           cd android
           chmod +x ./gradlew
-          ./gradlew --no-daemon --parallel --stacktrace clean assembleRelease 2>&1 | tail -80
+          # 输出完整日志到文件，尾部 300 行显示到 CI 日志；失败时自动 grep 错误
+          set +e
+          ./gradlew --no-daemon --parallel --stacktrace clean assembleRelease \
+            > /tmp/gradle-build.log 2>&1
+          RC=$?
+          set -e
+          echo "===== Gradle 构建日志尾部 300 行 ====="
+          tail -n 300 /tmp/gradle-build.log
+          echo ""
+          echo "===== 错误摘要（搜索 FAILURE / error / Exception / FAILED tasks）====="
+          grep -n -E "FAILURE:|> Task .* FAILED|Caused by:|error:" /tmp/gradle-build.log | tail -30 || true
+          echo ""
+          if [ $RC -ne 0 ]; then
+            echo "❌ Gradle 构建失败 (exit=$RC)，查看错误详情："
+            awk '/FAILURE: Build failed/,/BUILD FAILED/' /tmp/gradle-build.log | head -80
+            exit $RC
+          fi
+          echo "✅ Gradle 构建成功"
           echo ""
           echo "📦 APK 产物:"
           find app/build/outputs/apk -name "*.apk" -exec ls -lh {} \;

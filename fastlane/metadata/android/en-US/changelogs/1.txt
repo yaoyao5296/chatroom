@@ -1,3 +1,5 @@
-- Initial public release of ChatRoom for Android.
-- Real-time chat rooms with WebSocket.
-- Responsive UI for phones and tablets.
+Initial release (1.0):
+- First F-Droid release of ChatRoom Android app
+- Core features: public rooms, direct messages, moments, file/image uploads
+- Supports both IPv4 and IPv6 networks
+- Built with Capacitor from the React+Vite web frontend

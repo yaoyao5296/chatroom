@@ -1,10 +1,15 @@
-ChatRoom is a lightweight, real-time chat web application packaged as an Android app.
-It supports live messaging, public chat rooms, and works over both IPv4 and IPv6.
-The frontend is built with Vite + React, the backend uses Node.js + SQLite.
+ChatRoom is a lightweight, self-hostable real-time chat application packaged for Android via Capacitor.
 
 Features:
-- Real-time messaging via WebSocket
-- Responsive UI for mobile and tablet
-- Works offline with cache (PWA-like assets)
-- Light / dark themes
-- No account required — join a room and chat
+• Live messaging with WebSocket — send and receive instantly
+• Public chat rooms for group conversations
+• Private direct messages between users
+• Moments / posts timeline for sharing with friends
+• Friend management with presence indicators
+• File uploads and image sharing
+• Works over both IPv4 and IPv6 networks
+• Self-hosted backend: deploy your own Node.js + SQLite server
+• No mandatory third-party servers, no Google Play Services, no ads
+• Free and open source under the MIT license
+
+The Android application is a thin web wrapper around the same ChatRoom web UI, so features are identical to the browser version. Users can point the app at any self-deployed ChatRoom server instance (or use the demo public instances accessed via HTTPS tunnelling services like localtunnel / serveo / pinggy).
