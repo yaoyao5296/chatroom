@@ -104,91 +104,34 @@ jobs:
           fi
           ls android/app
 
-      - name: 注入 Gradle 签名配置到 android/app/build.gradle（别名 chatroom）
-        run: |
+      - name: 注入 Gradle 签名配置到 android/app/build.gradle（别名 chatroom，安全去重）        run: |
           set -e
           BF=android/app/build.gradle
-          [ -f "$BF" ] || { echo "missing $BF, ls android/app:"; ls android/app; exit 1; }
-          # 如果已经注入过就跳过
-          if grep -q 'signingConfigs.release.storeFile' "$BF"; then
-            echo "签名已注入，跳过"
-            head -30 "$BF"
+          [ -f "" ] || { echo "missing build.gradle"; exit 1; }
+          # 若已经存在 signingConfigs.release，则跳过（本地仓库已注入）
+          if grep -qF "signingConfigs" "" && grep -qF "signingConfig signingConfigs.release" ""; then
+            echo "✅ 签名已存在于 build.gradle，跳过注入"
+            head -30 ""
             exit 0
           fi
-          # Groovy 语法注入：先读文件
-          cp "$BF" "$BF.bak"
-          python3 <<PY
-          import re
-          with open("$BF", "r", encoding="utf-8") as f:
-              content = f.read()
-          # 头：def keystoreProperties 段（放在 apply plugin: 'com.android.application' 之后）
-          header = """// keystore
-          def keystorePropertiesFile = rootProject.file("keystore.properties")
-          def keystoreProperties = new Properties()
-          if (keystorePropertiesFile.exists()) {
-              keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-          }
-          """
-          content = content.replace(
-              "apply plugin: 'com.android.application'",
-              "apply plugin: 'com.android.application'\n" + header
-          )
-          # signingConfigs 段
-          signing = """
-              signingConfigs {
-                  release {
-                      storeFile file(keystoreProperties["storeFile"])
-                      storePassword keystoreProperties["storePassword"]
-                      keyAlias keystoreProperties["keyAlias"]
-                      keyPassword keystoreProperties["keyPassword"]
-                  }
-              }
-          """
-          # buildTypes.release 里加 signingConfig
-          release_re = re.compile(r"(buildTypes\s*\{\s*release\s*\{)")
-          def add_signing(m):
-              return m.group(1) + "\n            signingConfig signingConfigs.release\n"
-          # 如果有 signingConfigs 就不加了
-          if "signingConfigs" not in content:
-              # 插在 defaultConfig { ... } 之后，buildTypes 之前
-              if "buildTypes {" in content:
-                  content = content.replace("buildTypes {", signing + "\n    buildTypes {")
-              elif "buildTypes" in content:
-                  content = re.sub(r"buildTypes\s*\{", signing + "\n    buildTypes {", content)
-          content = release_re.sub(add_signing, content)
-          # 编译选项 Java 17
-          if "compileOptions" not in content and "compileSdk" in content:
-              content = content.rstrip()
-              # 找 android { 的结束 } 之前加 compileOptions
-              insert = """
-                  compileOptions {
-                      sourceCompatibility JavaVersion.VERSION_17
-                      targetCompatibility JavaVersion.VERSION_17
-                  }
-              """
-              # 在第一个 buildTypes 之后的 android { 闭合 } 之前加
-              pass
-          with open("$BF", "w", encoding="utf-8") as f:
-              f.write(content)
-          PY
-          # 再次兜底：如果 signingConfigs 仍不在，直接整段重写 build.gradle（最小可用）
-          if ! grep -q "signingConfigs" "$BF"; then
-              cat > "$BF" <<'GRADLE'
-          def keystorePropertiesFile = rootProject.file("keystore.properties")
-          def keystoreProperties = new Properties()
-          if (keystorePropertiesFile.exists()) {
-              keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-          }
+          # 否则：整份 build.gradle 重写为标准模板（避免 Python 注入的变量重复问题）
+          cp "" ".bak.ci"
+          cat > "" <<'GRADLE'
           apply plugin: 'com.android.application'
+          def chatroomKsf = rootProject.file("keystore.properties")
+          def chatroomKs = new Properties()
+          if (chatroomKsf.exists()) {
+              chatroomKs.load(new FileInputStream(chatroomKsf))
+          }
           android {
               namespace = "com.chatroom.app"
               compileSdk = rootProject.ext.compileSdkVersion
               signingConfigs {
                   release {
-                      storeFile file(keystoreProperties["storeFile"])
-                      storePassword keystoreProperties["storePassword"]
-                      keyAlias keystoreProperties["keyAlias"]
-                      keyPassword keystoreProperties["keyPassword"]
+                      storeFile file(chatroomKs["storeFile"])
+                      storePassword chatroomKs["storePassword"]
+                      keyAlias chatroomKs["keyAlias"]
+                      keyPassword chatroomKs["keyPassword"]
                   }
               }
               defaultConfig {
@@ -205,7 +148,9 @@ jobs:
                   release {
                       signingConfig signingConfigs.release
                       minifyEnabled false
-                      proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+                  }
+                  debug {
+                      minifyEnabled false
                   }
               }
               compileOptions {
@@ -219,9 +164,9 @@ jobs:
           dependencies {
               implementation fileTree(include: ['*.jar'], dir: 'libs')
               implementation project(':capacitor-android')
-              testImplementation "junit:junit:$junitVersion"
-              androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
-              androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+              testImplementation "junit:junit:"
+              androidTestImplementation "androidx.test.ext:junit:"
+              androidTestImplementation "androidx.test.espresso:espresso-core:"
               implementation project(':capacitor-cordova-android-plugins')
           }
           apply from: 'capacitor.build.gradle'
@@ -232,9 +177,8 @@ jobs:
               logger.info("google-services.json not found")
           }
           GRADLE
-          fi
-          echo "=== build.gradle 前 35 行（确认签名注入）==="
-          head -35 "$BF"
+          echo "✅ build.gradle 已重写安全模板（无重复变量）"
+          head -30 ""
 
       - name: Gradle assembleRelease（生成签名 APK）
         run: |
