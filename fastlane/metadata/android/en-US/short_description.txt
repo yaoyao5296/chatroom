@@ -1,1 +1,1 @@
-A lightweight real-time chat web app.
+Lightweight real-time chat rooms and messaging.

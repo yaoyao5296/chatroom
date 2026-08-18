@@ -35,11 +35,11 @@ jobs:
           echo "dist size: $(du -sh dist | cut -f1)"
           [ -f dist/index.html ] && echo "OK dist/index.html"
 
-      - name: Setup Java 17 (Temurin)
+      - name: Setup Java 21 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
 
       - name: Setup Gradle (Wrapper)
         uses: gradle/actions/setup-gradle@v4
@@ -103,90 +103,185 @@ jobs:
           fi
           [ -f android/app/build.gradle ] && echo "OK: android/app/build.gradle"
 
-      - name: 注入 Gradle 签名（去重，无重复变量）
+      - name: 修复根 build.gradle + 补丁注入签名
         run: |
           set -e
+          # ===== (A) 修复根 build.gradle：apply variables + AGP 8.10.2 classpath =====
+          # （androidx.core 1.17+ / activity 1.11+ 需要 AGP ≥ 8.9.1；Capacitor v8 用 JDK 21）
+          RBF=android/build.gradle
+          [ -f "$RBF" ] || { echo "❌ 找不到 $RBF"; ls android; exit 1; }
+          # 版本 ≥ 8.9 才满足 AAR metadata 要求
+          NEED_REWRITE=0
+          if ! grep -qF "variables.gradle" "$RBF"; then
+            NEED_REWRITE=1
+          fi
+          AGP_VER=$(grep -oE "com\.android\.tools\.build:gradle:[0-9.]+" "$RBF" | head -1 | cut -d: -f3 || true)
+          if [ -z "$AGP_VER" ]; then
+            NEED_REWRITE=1
+          else
+            # 简单版本比较：8.9/8.10 满足；8.5/8.6/8.7/8.8 不满足
+            MAJ=$(echo "$AGP_VER" | cut -d. -f1)
+            MIN=$(echo "$AGP_VER" | cut -d. -f2)
+            if [ "$MAJ" -lt 8 ] || { [ "$MAJ" -eq 8 ] && [ "$MIN" -lt 9 ]; }; then
+              echo "ℹ️ 当前 AGP=$AGP_VER 低于 8.9，需要升级"
+              NEED_REWRITE=1
+            fi
+          fi
+          if [ "$NEED_REWRITE" -eq 1 ]; then
+            cp "$RBF" "$RBF.bak.ci"
+            cat > "$RBF" <<'GRADLEROOT'
+          apply from: "variables.gradle"
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.9.1'
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          task clean(type: Delete) { delete rootProject.buildDir }
+          GRADLEROOT
+            echo "✅ 根 build.gradle 已重写（variables.gradle + AGP 8.9.1 classpath）"
+          else
+            echo "✅ 根 build.gradle 已正确（AGP $AGP_VER，包含 variables.gradle），跳过"
+          fi
+          echo "===== 根 build.gradle 前 20 行 ====="
+          head -20 "$RBF"
+          echo ""
+
+          # ===== (B) 补丁式注入 app/build.gradle 签名配置 =====
           BF=android/app/build.gradle
           [ -f "$BF" ] || { echo "❌ 找不到 $BF"; ls android/app; exit 1; }
-          # 已经注入过就跳过
+
           if grep -qF "signingConfig signingConfigs.release" "$BF" \
-             && ( grep -qF "keyAlias chatroomKs" "$BF" || grep -qF 'keyAlias keystoreProperties["keyAlias"]' "$BF" ); then
-            echo "✅ build.gradle 已包含签名配置，跳过注入"
-            head -20 "$BF"
+             && grep -qF "keyAlias" "$BF"; then
+            echo "✅ app/build.gradle 已有签名配置，跳过"
+            head -30 "$BF"
             exit 0
           fi
-          # 否则：先备份 → 写一份没有重复变量的干净模板
+
           cp "$BF" "$BF.bak.ci"
-          cat > "$BF" <<'GRADLE'
-          apply plugin: 'com.android.application'
+
+          # B-1: 头部注入 keystore 加载代码
+          if ! grep -qF "keystore.properties" "$BF"; then
+            python3 - "$BF" <<'PYEOF'
+          import sys, re
+          p = sys.argv[1]
+          with open(p, 'r', encoding='utf-8') as f:
+            content = f.read()
+          header = '''// 读取 keystore.properties（CI 注入）
           def chatroomKsf = rootProject.file("keystore.properties")
           def chatroomKs = new Properties()
           if (chatroomKsf.exists()) {
               chatroomKs.load(new FileInputStream(chatroomKsf))
           }
-          android {
-              namespace = "com.chatroom.app"
-              compileSdk = rootProject.ext.compileSdkVersion
-              signingConfigs {
-                  release {
-                      storeFile file(chatroomKs["storeFile"])
-                      storePassword chatroomKs["storePassword"]
-                      keyAlias chatroomKs["keyAlias"]
-                      keyPassword chatroomKs["keyPassword"]
-                  }
-              }
-              defaultConfig {
-                  applicationId "com.chatroom.app"
-                  minSdkVersion rootProject.ext.minSdkVersion
-                  targetSdkVersion rootProject.ext.targetSdkVersion
-                  versionCode 1
-                  versionName "1.0"
-                  aaptOptions {
-                      ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
-                  }
-              }
-              buildTypes {
-                  release {
-                      signingConfig signingConfigs.release
-                      minifyEnabled false
-                  }
-                  debug {
-                      minifyEnabled false
-                  }
-              }
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
+
+          '''
+          content = re.sub(
+              r"(?m)^(\s*apply\s+plugin:\s*['\"]com\.android\.application['\"])",
+              header + r"\1", content, count=1)
+          with open(p, 'w', encoding='utf-8') as f:
+            f.write(content)
+          PYEOF
+            echo "   + 注入 keystore 读取代码 OK"
+          fi
+
+          # B-2: android {} 内加入 signingConfigs.release（在 defaultConfig 前）
+          if ! grep -qF "signingConfigs" "$BF"; then
+            python3 - "$BF" <<'PYEOF2'
+          import sys, re
+          p = sys.argv[1]
+          with open(p, 'r', encoding='utf-8') as f:
+            content = f.read()
+          sig = '''    signingConfigs {
+              release {
+                  storeFile file(chatroomKs["storeFile"])
+                  storePassword chatroomKs["storePassword"]
+                  keyAlias chatroomKs["keyAlias"]
+                  keyPassword chatroomKs["keyPassword"]
               }
           }
-          repositories {
-              flatDir { dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs' }
-          }
-          dependencies {
-              implementation fileTree(include: ['*.jar'], dir: 'libs')
-              implementation project(':capacitor-android')
-              testImplementation "junit:junit:$junitVersion"
-              androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
-              androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
-              implementation project(':capacitor-cordova-android-plugins')
-          }
-          apply from: 'capacitor.build.gradle'
-          try {
-              def servicesJSON = file('google-services.json')
-              if (servicesJSON.text) { apply plugin: 'com.google.gms.google-services' }
-          } catch(Exception e) {
-              logger.info("google-services.json not found")
-          }
-          GRADLE
-          echo "✅ build.gradle 已重写（前缀 chatroomKsf / chatroomKs，无重复变量风险）"
-          head -25 "$BF"
+
+          '''
+          content = re.sub(
+              r"(?m)^(\s*defaultConfig\s*\{)",
+              sig + r"\1", content, count=1)
+          with open(p, 'w', encoding='utf-8') as f:
+            f.write(content)
+          PYEOF2
+            echo "   + 注入 signingConfigs OK"
+          fi
+
+          # B-3: buildTypes.release 加入 signingConfig signingConfigs.release
+          python3 - "$BF" <<'PYEOF3'
+          import sys, re
+          p = sys.argv[1]
+          with open(p, 'r', encoding='utf-8') as f:
+            content = f.read()
+          # 找到 release { 块，内部若无 signingConfig 则插入
+          m = re.search(r"(?m)^(\s*)release\s*\{", content)
+          if m:
+            indent_outer = m.group(1)
+            i = m.end()
+            depth = 1
+            has_sig = False
+            chunk_start = m.start()
+            while i < len(content) and depth > 0:
+                if content[i] == '{':
+                    depth += 1
+                elif content[i] == '}':
+                    depth -= 1
+                if 'signingConfig' in content[max(0,i-80):i+50]:
+                    has_sig = True
+                i += 1
+            if not has_sig:
+                # 在 release { 之后的第一个换行处插入 signingConfig
+                insert_pos = m.end()
+                insert_text = "\n" + indent_outer + "        signingConfig signingConfigs.release\n"
+                content = content[:insert_pos] + insert_text + content[insert_pos:]
+                with open(p, 'w', encoding='utf-8') as f:
+                    f.write(content)
+          PYEOF3
+          echo "   + 注入 buildTypes.release.signingConfig OK"
+
+          echo ""
+          echo "✅ app/build.gradle 签名补丁完成"
+          echo "===== signingConfigs 片段 ====="
+          grep -n -A8 "signingConfigs" "$BF" | head -15
+          echo ""
+          echo "===== buildTypes release 片段 ====="
+          grep -n -A12 "buildTypes" "$BF" | head -20
 
       - name: Gradle assembleRelease
         run: |
-          set -e
+          set -eo pipefail
           cd android
           chmod +x ./gradlew
-          ./gradlew --no-daemon --parallel --stacktrace clean assembleRelease 2>&1 | tail -60
+          # 输出完整日志到文件，尾部 300 行显示到 CI 日志；失败时自动 grep 错误
+          set +e
+          ./gradlew --no-daemon --parallel --stacktrace clean assembleRelease \
+            > /tmp/gradle-build.log 2>&1
+          RC=$?
+          set -e
+          echo "===== Gradle 构建日志尾部 300 行 ====="
+          tail -n 300 /tmp/gradle-build.log
+          echo ""
+          echo "===== 错误摘要（搜索 FAILURE / error / Exception / FAILED tasks）====="
+          grep -n -E "FAILURE:|> Task .* FAILED|Caused by:|error:" /tmp/gradle-build.log | tail -30 || true
+          echo ""
+          if [ $RC -ne 0 ]; then
+            echo "❌ Gradle 构建失败 (exit=$RC)，查看错误详情："
+            awk '/FAILURE: Build failed/,/BUILD FAILED/' /tmp/gradle-build.log | head -80
+            exit $RC
+          fi
+          echo "✅ Gradle 构建成功"
           echo ""
           echo "📦 APK 产物:"
           find app/build/outputs/apk -name "*.apk" -exec ls -lh {} \;

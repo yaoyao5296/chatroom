@@ -1,0 +1,40 @@
+Categories:
+  - Internet
+  - Connectivity
+License: MIT
+WebSite: https://github.com/yaoyao5296/chatroom
+SourceCode: https://github.com/yaoyao5296/chatroom
+IssueTracker: https://github.com/yaoyao5296/chatroom/issues
+Changelog: https://github.com/yaoyao5296/chatroom/releases
+
+AutoName: ChatRoom
+
+RepoType: git
+Repo: https://github.com/yaoyao5296/chatroom.git
+
+Builds:
+  - versionName: '1.0'
+    versionCode: 1
+    commit: v1.0.0
+    subdir: android
+    sudo:
+      - apt-get update || apt-get update
+      - apt-get install -y ca-certificates curl gnupg
+      - mkdir -p /etc/apt/keyrings
+      - curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+      - echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list
+      - apt-get update
+      - apt-get install -y nodejs
+      - node -v && npm -v
+    init: |
+        cd ..
+        npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+        npm run build
+        npx cap sync android
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: '1.0'
+CurrentVersionCode: 1

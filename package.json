@@ -1,9 +1,9 @@
 {
   "name": "chatroom",
-  "private": true,
   "version": "1.0.0",
+  "license": "MIT",
   "type": "module",
-  "main": "electron/main.js",
+  "private": true,
   "scripts": {
     "start": "NODE_ENV=production node --env-file=.env --import tsx api/server.ts",
     "start:lean": "NODE_ENV=production node --env-file=.env --max-old-space-size=384 --optimize-for-size --max-semi-space-size=2 --initial-old-space-size=128 --import tsx api/server.ts",
@@ -28,12 +28,6 @@
     "electron:build:mac": "vite build && electron-builder --mac",
     "electron:build:linux": "vite build && electron-builder --linux",
     "electron:build:all": "vite build && electron-builder --win --mac --linux"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "esbuild"
-    ]
   },
   "dependencies": {
     "@capacitor/app": "^8.1.0",
@@ -98,6 +92,13 @@
     "typescript-eslint": "^8.30.1",
     "vite": "^6.4.3",
     "vite-tsconfig-paths": "^5.1.4"
+  },
+  "main": "electron/main.js",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
   },
   "build": {
     "appId": "com.chatroom.desktop",
