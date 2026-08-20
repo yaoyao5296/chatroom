@@ -13,10 +13,19 @@ android {
 
     signingConfigs {
         release {
-            storeFile file(keystoreProperties["storeFile"])
-            storePassword keystoreProperties["storePassword"]
-            keyAlias keystoreProperties["keyAlias"]
-            keyPassword keystoreProperties["keyPassword"]
+            if (keystorePropertiesFile.exists()) {
+                storeFile file(keystoreProperties["storeFile"])
+                storePassword keystoreProperties["storePassword"]
+                keyAlias keystoreProperties["keyAlias"]
+                keyPassword keystoreProperties["keyPassword"]
+            } else {
+                // F-Droid / CI 无 keystore.properties 时，用 debug 签名构建
+                // F-Droid 会用自己的密钥重签发布版 APK
+                storeFile debug.signingConfig.storeFile
+                storePassword debug.signingConfig.storePassword
+                keyAlias debug.signingConfig.keyAlias
+                keyPassword debug.signingConfig.keyPassword
+            }
         }
     }
 
