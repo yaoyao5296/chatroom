@@ -12,4 +12,4 @@ Features:
 • No mandatory third-party servers, no Google Play Services, no ads
 • Free and open source under the MIT license
 
-The Android application is a thin web wrapper around the same ChatRoom web UI, so features are identical to the browser version. Users can point the app at any self-deployed ChatRoom server instance (or use the demo public instances accessed via HTTPS tunnelling services like localtunnel / serveo / pinggy).
+The Android application is a thin web wrapper around the same ChatRoom web UI, so features are identical to the browser version. Users can point the app at any self-deployed ChatRoom server instance.
