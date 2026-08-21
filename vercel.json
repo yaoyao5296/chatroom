@@ -4,12 +4,7 @@
   "installCommand": "node -e \"console.log('skip install')\"",
   "buildCommand": "node -e \"console.log('skip build')\"",
   "outputDirectory": ".",
-  "functions": {
-    "_edge/wake.ts": {
-      "runtime": "@vercel/edge@latest"
-    }
-  },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/_edge/wake" }
+    { "source": "/(.*)", "destination": "/api/index" }
   ]
 }

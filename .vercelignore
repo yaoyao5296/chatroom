@@ -1,5 +1,20 @@
-# 忽略一切后端源码和重型依赖，只保留 Edge 唤醒入口文件
-api/
+# 忽略重型源码和依赖，只保留 Edge 唤醒入口 api/index.ts（Vercel 自动识别 api/* 路由）
+# =======================
+# api/ 目录里只保留 api/index.ts（Edge Runtime 唤醒入口），忽略其余 Express 后端（避免 Vercel 尝试构建 serverless functions）
+api/app.ts
+api/server.ts
+api/db.ts
+api/db.ts.bak*
+api/socket.ts
+api/socket.ts.bak*
+api/redis.ts
+api/encrypt.ts
+api/browser_agent.py
+api/__pycache__/
+api/middleware/
+api/routes/
+api/services/
+
 node_modules/
 android/
 scripts/
@@ -15,6 +30,8 @@ server/
 uploads/
 logs/
 coverage/
+_edge/
+vercel/
 
 # 构建/运行产物
 *.log
@@ -25,6 +42,3 @@ data.db-journal
 *.sqlite3
 .env
 .env.*
-
-# 多余的 vercel/ 子目录（唤醒脚本已移到根 _edge/）
-vercel/
