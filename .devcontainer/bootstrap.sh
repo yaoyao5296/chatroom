@@ -92,6 +92,12 @@ elif [ ! -d node_modules/vite ] || [ ! -d node_modules/tsx ]; then
 fi
 if [ "$NEED_INSTALL" = "1" ]; then
   echo "[bootstrap] 安装依赖（含 devDependencies，用于 vite 构建）"
+  # Python 3.13+ 移除了 distutils，但 node-gyp 9.x 依赖它，编译 better-sqlite3 会失败
+  # 装 setuptools 提供 distutils 兼容
+  if ! python3 -c "import distutils" 2>/dev/null; then
+    echo "[bootstrap] 安装 python3-setuptools（提供 distutils）"
+    sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y python3-setuptools >/dev/null 2>&1 || true
+  fi
   # 临时切换 NODE_ENV=development，否则 npm 在 production 下会跳过 devDependencies
   ORIG_NODE_ENV="${NODE_ENV:-}"
   export NODE_ENV=development
@@ -99,6 +105,11 @@ if [ "$NEED_INSTALL" = "1" ]; then
     npm ci --no-audit --no-fund --include=dev 2>&1 | tail -5 || npm install --no-audit --no-fund --include=dev 2>&1 | tail -5
   else
     npm install --no-audit --no-fund --include=dev 2>&1 | tail -5
+  fi
+  # 确保 better-sqlite3 原生模块编译完成
+  if [ ! -f node_modules/better-sqlite3/build/Release/better_sqlite3.node ]; then
+    echo "[bootstrap] 编译 better-sqlite3 原生模块"
+    (cd node_modules/better-sqlite3 && npx --yes node-gyp rebuild --release 2>&1 | tail -3) || echo "[bootstrap] ⚠ better-sqlite3 编译失败"
   fi
   export NODE_ENV="$ORIG_NODE_ENV"
 else
