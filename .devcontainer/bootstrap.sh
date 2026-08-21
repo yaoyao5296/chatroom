@@ -1,29 +1,18 @@
 #!/usr/bin/env bash
-# Codespace 每次启动时运行 —— 构建产物 + 上报公开 URL + 启动服务 + 拉起空闲守护
-set -euo pipefail
+# Codespace 每次启动时运行 —— 装依赖 + 构建产物 + 启动服务 + 拉起空闲守护
+set -uo pipefail
 
 # ============ 0) PATH 修复（非交互式 ssh 不加载 nvm，需手动加 node/npm） ============
 for p in /home/codespace/nvm/current/bin /usr/local/nodejs/current/bin /usr/local/bin; do
   [ -d "$p" ] && case ":$PATH:" in *":$p:"*) ;; *) PATH="$p:$PATH" ;; esac
 done
 export PATH
-# 加载 nvm（若存在）
 export NVM_DIR="${NVM_DIR:-/home/codespace/.nvm}"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" 2>/dev/null || true
 
-echo "[bootstrap] Codespace 启动于 $(date -u +%FT%TZ)"
+echo "[bootstrap] 启动于 $(date -u +%FT%TZ)  node=$(node -v 2>/dev/null || echo '?')  npm=$(npm -v 2>/dev/null || echo '?')"
 
-# CODESPACE_NAME 在非交互式 ssh 下可能没注入，多重兜底
-if [ -z "${CODESPACE_NAME:-}" ] || [ "${CODESPACE_NAME:-}" = "unknown" ]; then
-  CODESPACE_NAME="${CODESPACE_NAME:-${CODESPACE:-}}"
-  if [ -z "$CODESPACE_NAME" ] && command -v gh >/dev/null 2>&1; then
-    CODESPACE_NAME=$(gh codespace list --json name -q '.[0].name' 2>/dev/null || true)
-  fi
-  export CODESPACE_NAME
-fi
-echo "[bootstrap] CODESPACE_NAME=${CODESPACE_NAME:-unknown}"
-
-# 确定项目根目录（ssh 进来可能在 ~，不在项目目录）
+# ============ 0.5) 确定项目根目录 ============
 ROOT=""
 for d in /workspaces/chatroom "${CODESPACE_VSCODE_FOLDER:-}" /workspace .; do
   [ -z "$d" ] && continue
@@ -37,117 +26,144 @@ fi
 cd "$ROOT"
 echo "[bootstrap] 工作目录: $ROOT"
 
+# ============ 0.7) 确定 CODESPACE_NAME ============
+CODESPACE_NAME="${CODESPACE_NAME:-${CODESPACE:-}}"
+# 兜底：Codespace 会把 name 写到 /etc/codespace-name 或环境
+if [ -z "$CODESPACE_NAME" ] || [ "$CODESPACE_NAME" = "unknown" ]; then
+  CODESPACE_NAME=$(cat /etc/codespace-name 2>/dev/null || echo "")
+fi
+# 最后兜底：从 hostname 推断（Codespace 容器 hostname 通常是 codespace name）
+if [ -z "$CODESPACE_NAME" ]; then
+  CODESPACE_NAME=$(hostname 2>/dev/null | head -1)
+fi
+export CODESPACE_NAME
+echo "[bootstrap] CODESPACE_NAME=${CODESPACE_NAME:-unknown}"
+
 # ============ 1) 环境变量 ============
 export NODE_ENV=production
 export PORT=3001
 export HOST=0.0.0.0
-export REDIS_URL=${REDIS_URL:-redis://127.0.0.1:6379}
 export DATABASE_URL=${DATABASE_URL:-./data/chatroom.db}
-# JWT_SECRET：若未设置则生成稳定值并写入 .env（避免每次重启用户被踢下线）
+export REDIS_URL=${REDIS_URL:-}
+
+# JWT_SECRET：稳定值写入 .env
 if [ -z "${JWT_SECRET:-}" ]; then
   if [ -f .env ] && grep -q "^JWT_SECRET=" .env; then
     export JWT_SECRET=$(grep "^JWT_SECRET=" .env | cut -d= -f2-)
   else
-    # 生成随机 hex（不依赖 openssl，用 /dev/urandom + node 兜底）
     RAND_HEX=""
     if [ -r /dev/urandom ]; then
       RAND_HEX=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' 2>/dev/null || true)
     fi
-    if [ -z "$RAND_HEX" ]; then
-      RAND_HEX=$(node -e "console.log(require('crypto').randomBytes(16).toString('hex'))" 2>/dev/null || echo "$(date +%s)%$RANDOM" | md5sum | cut -c1-32)
-    fi
+    [ -z "$RAND_HEX" ] && RAND_HEX=$(node -e "console.log(require('crypto').randomBytes(16).toString('hex'))" 2>/dev/null || echo "$(date +%s)$RANDOM" | md5sum | cut -c1-32)
     JWT_SECRET="cs_${RAND_HEX}"
     echo "JWT_SECRET=$JWT_SECRET" >> .env
     export JWT_SECRET
   fi
 fi
 
-# ============ 2) Redis 拉起（Codespace 内置 feature 装了但可能没启动） ============
-if ! command -v redis-cli >/dev/null 2>&1; then
-  echo "[bootstrap] redis-cli 未安装，使用内存模式"
-  export REDIS_URL=""
-elif ! redis-cli -p 6379 ping >/dev/null 2>&1; then
-  echo "[bootstrap] 启动本地 Redis"
-  (redis-server --daemonize yes --save "" --appendonly no --maxmemory 64mb --maxmemory-policy allkeys-lru 2>/dev/null || true)
-  sleep 1
-  redis-cli -p 6379 ping >/dev/null 2>&1 && echo "[bootstrap] Redis 就绪" || echo "[bootstrap] Redis 启动失败，回退内存模式"
+# ============ 2) Redis（可选，codespace 默认没装，失败回退内存模式） ============
+if command -v redis-cli >/dev/null 2>&1 && command -v redis-server >/dev/null 2>&1; then
+  if ! redis-cli -p 6379 ping >/dev/null 2>&1; then
+    (redis-server --daemonize yes --save "" --appendonly no --maxmemory 64mb --maxmemory-policy allkeys-lru 2>/dev/null || true)
+    sleep 1
+    if redis-cli -p 6379 ping >/dev/null 2>&1; then
+      export REDIS_URL="redis://127.0.0.1:6379"
+      echo "[bootstrap] Redis 就绪"
+    fi
+  else
+    export REDIS_URL="redis://127.0.0.1:6379"
+  fi
+fi
+[ -z "$REDIS_URL" ] && echo "[bootstrap] Redis 未启用，使用内存模式"
+
+# ============ 3) 安装依赖（强制，确保 node_modules 完整） ============
+NEED_INSTALL=0
+if [ ! -d node_modules ] || [ ! -f node_modules/.package-lock.json ]; then
+  NEED_INSTALL=1
+elif [ ! -f node_modules/tsx/dist/cli.mjs ]; then
+  NEED_INSTALL=1
+fi
+if [ "$NEED_INSTALL" = "1" ]; then
+  echo "[bootstrap] 安装依赖（npm ci 复用 package-lock）"
+  if [ -f package-lock.json ]; then
+    npm ci --no-audit --no-fund 2>&1 | tail -5 || npm install --no-audit --no-fund 2>&1 | tail -5
+  else
+    npm install --no-audit --no-fund 2>&1 | tail -5
+  fi
+else
+  echo "[bootstrap] node_modules 已存在，跳过安装"
 fi
 
-# ============ 3) 补装 devDependencies（如果 install-deps 用了 --omit=dev） ============
-# 在 Codespace 内运行时需要 tsx/typescript/vite，必须装 devDependencies
-if [ ! -d node_modules/.bin ] || [ ! -f node_modules/tsx/dist/cli.mjs ]; then
-  echo "[bootstrap] 补装 devDependencies（tsx/typescript/vite）"
-  npm install --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund --omit=optional
-fi
-
-# ============ 4) 构建前端（如果 dist 缺失或源码比 dist 新） ============
+# ============ 4) 构建前端 ============
 REBUILD=0
 if [ ! -f dist/index.html ]; then
   REBUILD=1
-elif [ "$(find src api -name '*.tsx' -o -name '*.ts' -newer dist/index.html 2>/dev/null | head -1)" ]; then
+elif [ -n "$(find src api -name '*.tsx' -o -name '*.ts' -newer dist/index.html 2>/dev/null | head -1)" ]; then
   REBUILD=1
 fi
 if [ "$REBUILD" = "1" ]; then
   echo "[bootstrap] 构建前端产物"
-  npx vite build 2>&1 | tail -5 || echo "[bootstrap] vite build 失败，将使用现有 dist（若有）"
+  if ! npx vite build 2>&1 | tail -10; then
+    echo "[bootstrap] ⚠ vite build 失败，尝试用现有 dist"
+  fi
 fi
 
-# ============ 5) 启动服务（lean 模式，省内存） ============
-# 先杀掉旧实例避免端口占用
+# ============ 5) 启动服务 ============
 pkill -f "tsx api/server.ts" 2>/dev/null || true
 sleep 1
-
 mkdir -p logs data uploads
 
 echo "[bootstrap] 启动 chatroom 服务（端口 3001）"
 nohup node \
-  --max-old-space-size=384 \
-  --optimize-for-size \
-  --max-semi-space-size=2 \
-  --import tsx \
-  api/server.ts \
+  --max-old-space-size=384 --optimize-for-size --max-semi-space-size=2 \
+  --import tsx api/server.ts \
   > logs/server.log 2>&1 &
 SERVER_PID=$!
 echo "[bootstrap] server PID=$SERVER_PID"
 echo "$SERVER_PID" > .server.pid
 
-# 等服务就绪（最多 30 秒）
-for i in $(seq 1 30); do
+# 等服务就绪（最多 40 秒）
+READY=0
+for i in $(seq 1 40); do
   if curl -sf http://localhost:3001/api/health >/dev/null 2>&1; then
-    echo "[bootstrap] 服务就绪（用时 ${i}s）"
+    echo "[bootstrap] ✓ 服务就绪（用时 ${i}s）"
+    READY=1
+    break
+  fi
+  # 检查进程是否还活着
+  if ! kill -0 $SERVER_PID 2>/dev/null; then
+    echo "[bootstrap] ✘ 服务进程已退出，日志："
+    tail -20 logs/server.log 2>/dev/null
     break
   fi
   sleep 1
 done
+if [ "$READY" = "0" ]; then
+  echo "[bootstrap] ✘ 服务未就绪，最后日志："
+  tail -30 logs/server.log 2>/dev/null
+fi
 
-# ============ 6) 上报公开 URL 到仓库（双保险） ============
-# Codespace 公开 URL 格式：https://<codespace-name>-3001.app.github.dev
-# 重启后通常不变，但这里仍然上报一次，Worker 优先读这个文件
+# ============ 6) 写入公开 URL 到本地文件（不 push，由外部读取或 GitHub API 查） ============
 PUBLIC_URL=""
-if [ -n "${CODESPACE_NAME:-}" ]; then
-  # 通过 gh CLI 拿端口转发地址（最准）
-  PUBLIC_URL=$(gh codespace ports 2>/dev/null | awk '$1=="3001"{print $3}' | head -1 || true)
-  # 兜底：拼接标准格式
-  if [ -z "$PUBLIC_URL" ]; then
-    PUBLIC_URL="https://${CODESPACE_NAME}-3001.app.github.dev"
-  fi
+if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ]; then
+  PUBLIC_URL="https://${CODESPACE_NAME}-3001.app.github.dev"
 fi
 if [ -n "$PUBLIC_URL" ]; then
+  echo "$PUBLIC_URL" > .codespace-url
   echo "[bootstrap] 公开 URL: $PUBLIC_URL"
-  # 写入仓库文件（如果变了才 commit，避免每次启动产生空提交）
-  if [ ! -f .codespace-url ] || [ "$(cat .codespace-url 2>/dev/null)" != "$PUBLIC_URL" ]; then
-    echo "$PUBLIC_URL" > .codespace-url
-    echo "$(date -u +%FT%TZ)" > .codespace-url-updated-at
-    git add .codespace-url .codespace-url-updated-at 2>/dev/null || true
-    git -c user.name="codespace-bot" -c user.email="codespace-bot@users.noreply.github.com" \
-      commit -m "chore(codespace): update public url [skip ci]" 2>/dev/null || true
-    git push origin HEAD:master 2>/dev/null || echo "[bootstrap] push 失败，Worker 将用默认 URL"
-  fi
 fi
 
-# ============ 7) 拉起空闲守护（10 分钟无真实访问则停止 Codespace） ============
-echo "[bootstrap] 启动空闲守护（10 分钟阈值）"
-nohup node scripts/codespace-idle-watcher.mjs > logs/idle-watcher.log 2>&1 &
-echo $! > .idle-watcher.pid
+# ============ 7) 拉起空闲守护 ============
+# 空闲守护需要 GH_PAT 才能真正停止 codespace，缺失时仅告警
+if [ -n "${GH_PAT:-}" ]; then
+  echo "[bootstrap] 启动空闲守护（10 分钟阈值）"
+  nohup node scripts/codespace-idle-watcher.mjs > logs/idle-watcher.log 2>&1 &
+  echo $! > .idle-watcher.pid
+else
+  echo "[bootstrap] ⚠ GH_PAT 未设置，空闲守护不会真正停止 codespace（仅记录日志）"
+  nohup node scripts/codespace-idle-watcher.mjs > logs/idle-watcher.log 2>&1 &
+  echo $! > .idle-watcher.pid
+fi
 
-echo "[bootstrap] 全部就绪，服务地址: ${PUBLIC_URL:-http://localhost:3001}"
+echo "[bootstrap] 完成，服务地址: ${PUBLIC_URL:-http://localhost:3001}"
