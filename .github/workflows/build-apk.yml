@@ -314,3 +314,21 @@ jobs:
           files: release/chatroom.apk
           fail_on_unmatched_files: true
           generate_release_notes: true
+
+      - name: 替换签名 APK 到源代码 public/ChatRoom.apk 并推送
+        run: |
+          set -e
+          mkdir -p public
+          cp release/chatroom.apk public/ChatRoom.apk
+          ls -lh public/ChatRoom.apk
+          sha256sum public/ChatRoom.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/ChatRoom.apk
+          if git diff --cached --quiet; then
+            echo "APK 无变化，跳过提交"
+          else
+            git commit -m "chore: 更新签名版 ChatRoom.apk [skip ci]"
+            git push
+            echo "✅ 签名 APK 已替换到源代码 public/ChatRoom.apk"
+          fi

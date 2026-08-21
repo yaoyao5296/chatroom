@@ -51,6 +51,15 @@ export HOST=0.0.0.0
 export DATABASE_URL=${DATABASE_URL:-./data/chatroom.db}
 export REDIS_URL=${REDIS_URL:-}
 
+# 邮箱服务（163 SMTP）—— 授权码通过 Codespace secret 注入，绝不在代码中硬编码
+# 设置方式（拿到带 codespace 权限的 PAT 后执行，授权码请另行提供，勿写入本文件）：
+#   gh secret set MAIL_PASS -a codespaces -b "<你的163授权码>"
+export MAIL_HOST="${MAIL_HOST:-smtp.163.com}"
+export MAIL_PORT="${MAIL_PORT:-465}"
+export MAIL_USER="${MAIL_USER:-13574196538@163.com}"
+export MAIL_PASS="${MAIL_PASS:-}"
+export MAIL_FROM="${MAIL_FROM:-${MAIL_USER}}"
+
 # JWT_SECRET：稳定值写入 .env
 if [ -z "${JWT_SECRET:-}" ]; then
   if [ -f .env ] && grep -q "^JWT_SECRET=" .env; then
