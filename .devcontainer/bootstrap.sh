@@ -92,11 +92,15 @@ elif [ ! -d node_modules/vite ] || [ ! -d node_modules/tsx ]; then
 fi
 if [ "$NEED_INSTALL" = "1" ]; then
   echo "[bootstrap] 安装依赖（含 devDependencies，用于 vite 构建）"
+  # 临时切换 NODE_ENV=development，否则 npm 在 production 下会跳过 devDependencies
+  ORIG_NODE_ENV="${NODE_ENV:-}"
+  export NODE_ENV=development
   if [ -f package-lock.json ]; then
-    npm ci --no-audit --no-fund 2>&1 | tail -5 || npm install --no-audit --no-fund 2>&1 | tail -5
+    npm ci --no-audit --no-fund --include=dev 2>&1 | tail -5 || npm install --no-audit --no-fund --include=dev 2>&1 | tail -5
   else
-    npm install --no-audit --no-fund 2>&1 | tail -5
+    npm install --no-audit --no-fund --include=dev 2>&1 | tail -5
   fi
+  export NODE_ENV="$ORIG_NODE_ENV"
 else
   echo "[bootstrap] node_modules 完整，跳过安装"
 fi
