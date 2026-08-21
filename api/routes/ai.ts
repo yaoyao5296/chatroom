@@ -1,8 +1,8 @@
 /**
  * AI 问答路由 —— 直接调用 GitHub Models API
+ * 使用 Node 18+ 内置 fetch（无需 node-fetch）
  */
 import { Router, type Request, type Response } from 'express'
-import fetch from 'node-fetch'
 
 const router = Router()
 
