@@ -1,0 +1,51 @@
+{
+  "name": "chatroom-codespace",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": false,
+      "configureZshAsDefaultShell": false,
+      "username": "codespace",
+      "upgradePackages": false
+    },
+    "ghcr.io/robbert229/devcontainer-features/redis:1": {
+      "version": "7"
+    }
+  },
+  "forwardPorts": [3001, 6379],
+  "portsAttributes": {
+    "3001": {
+      "label": "chatroom",
+      "onAutoForward": "silent",
+      "visibility": "public"
+    },
+    "6379": {
+      "label": "redis",
+      "visibility": "private"
+    }
+  },
+  "initializeCommand": "git config --global --add safe.directory /workspaces/chatroom || true",
+  "postCreateCommand": ".devcontainer/install-deps.sh",
+  "postStartCommand": ".devcontainer/bootstrap.sh",
+  "remoteEnv": {
+    "NODE_ENV": "production",
+    "PORT": "3001",
+    "HOST": "0.0.0.0",
+    "REDIS_URL": "redis://127.0.0.1:6379",
+    "DATABASE_URL": "./data/chatroom.db"
+  },
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "4gb",
+    "storage": "32gb"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint"],
+      "settings": {
+        "files.autoSave": "off",
+        "terminal.integrated.scrollback": 2000
+      }
+    }
+  }
+}
