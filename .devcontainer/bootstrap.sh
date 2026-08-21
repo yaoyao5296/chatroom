@@ -2,11 +2,31 @@
 # Codespace 每次启动时运行 —— 构建产物 + 上报公开 URL + 启动服务 + 拉起空闲守护
 set -euo pipefail
 
-cd /workspaces/chatroom 2>/dev/null || cd "$CODESPACE_VSCODE_FOLDER" 2>/dev/null || cd /workspace 2>/dev/null
-ROOT="$PWD"
-
 echo "[bootstrap] Codespace 启动于 $(date -u +%FT%TZ)"
+
+# CODESPACE_NAME 在非交互式 ssh 下可能没注入，多重兜底
+if [ -z "${CODESPACE_NAME:-}" ] || [ "${CODESPACE_NAME:-}" = "unknown" ]; then
+  # 尝试从 CODESPACE 环境变量或文件读取
+  CODESPACE_NAME="${CODESPACE_NAME:-${CODESPACE:-}}"
+  if [ -z "$CODESPACE_NAME" ] && command -v gh >/dev/null 2>&1; then
+    CODESPACE_NAME=$(gh codespace list --json name -q '.[0].name' 2>/dev/null || true)
+  fi
+  export CODESPACE_NAME
+fi
 echo "[bootstrap] CODESPACE_NAME=${CODESPACE_NAME:-unknown}"
+
+# 确定项目根目录（ssh 进来可能在 ~，不在项目目录）
+ROOT=""
+for d in /workspaces/chatroom "$CODESPACE_VSCODE_FOLDER" /workspace .; do
+  if [ -f "$d/package.json" ] && [ -f "$d/.devcontainer/bootstrap.sh" ]; then
+    ROOT="$d"; break
+  fi
+done
+if [ -z "$ROOT" ]; then
+  echo "[bootstrap] ✘ 找不到项目根目录，退出"; exit 1
+fi
+cd "$ROOT"
+echo "[bootstrap] 工作目录: $ROOT"
 
 # ============ 1) 环境变量 ============
 export NODE_ENV=production
@@ -19,7 +39,15 @@ if [ -z "${JWT_SECRET:-}" ]; then
   if [ -f .env ] && grep -q "^JWT_SECRET=" .env; then
     export JWT_SECRET=$(grep "^JWT_SECRET=" .env | cut -d= -f2-)
   else
-    JWT_SECRET="cs_$(openssl rand -hex 16)"
+    # 生成随机 hex（不依赖 openssl，用 /dev/urandom + node 兜底）
+    RAND_HEX=""
+    if [ -r /dev/urandom ]; then
+      RAND_HEX=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' 2>/dev/null || true)
+    fi
+    if [ -z "$RAND_HEX" ]; then
+      RAND_HEX=$(node -e "console.log(require('crypto').randomBytes(16).toString('hex'))" 2>/dev/null || echo "$(date +%s)%$RANDOM" | md5sum | cut -c1-32)
+    fi
+    JWT_SECRET="cs_${RAND_HEX}"
     echo "JWT_SECRET=$JWT_SECRET" >> .env
     export JWT_SECRET
   fi
