@@ -1,12 +1,15 @@
 {
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/index"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "node -e \"console.log('skip install')\"",
+  "buildCommand": "node -e \"console.log('skip build')\"",
+  "outputDirectory": ".",
+  "functions": {
+    "_edge/wake.ts": {
+      "runtime": "@vercel/edge@latest"
     }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/_edge/wake" }
   ]
 }

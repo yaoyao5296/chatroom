@@ -1,0 +1,30 @@
+# 忽略一切后端源码和重型依赖，只保留 Edge 唤醒入口文件
+api/
+node_modules/
+android/
+scripts/
+cloudflare/
+public/
+dist/
+.capacitor/
+.devcontainer/
+.github/
+.vscode/
+.trae-html-share-packages/
+server/
+uploads/
+logs/
+coverage/
+
+# 构建/运行产物
+*.log
+dump.rdb
+data.db
+data.db-journal
+*.sqlite
+*.sqlite3
+.env
+.env.*
+
+# 多余的 vercel/ 子目录（唤醒脚本已移到根 _edge/）
+vercel/
