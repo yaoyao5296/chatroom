@@ -30,6 +30,7 @@ import locationRoutes from './routes/location.js'
 import aiRoutes from './routes/ai.js'
 import errorReportRoutes from './routes/errorReport.js'
 import adminRoutes from './routes/admin.js'
+import { idleTracker } from './middleware/idleTracker.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -67,6 +68,12 @@ app.use((req: Request, res: Response, next) => {
   }
   next()
 })
+
+// ==================== 1.5) 空闲追踪 ====================
+// 必须在 body 解析之前，这样健康检查 / 探针请求不会被 body 解析占用 CPU
+// 只统计真实用户访问，过滤 CF 探针、健康检查、爬虫预取等无效请求
+// 空闲守护脚本读取 ./data/last-access.json 判断是否该停 Codespace
+app.use(idleTracker)
 
 // ==================== 2) 请求体解析 ====================
 // 对 multipart/form-data 请求跳过 body parser，由 multer 处理
