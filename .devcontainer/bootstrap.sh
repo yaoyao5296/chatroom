@@ -32,9 +32,14 @@ CODESPACE_NAME="${CODESPACE_NAME:-${CODESPACE:-}}"
 if [ -z "$CODESPACE_NAME" ] || [ "$CODESPACE_NAME" = "unknown" ]; then
   CODESPACE_NAME=$(cat /etc/codespace-name 2>/dev/null || echo "")
 fi
-# 最后兜底：从 hostname 推断（Codespace 容器 hostname 通常是 codespace name）
-if [ -z "$CODESPACE_NAME" ]; then
-  CODESPACE_NAME=$(hostname 2>/dev/null | head -1)
+# 兜底 2：hostname（Codespace 容器 hostname 不是 codespace name，跳过）
+# 兜底 3：通过 GitHub API 查（用 codespace 内的 GITHUB_TOKEN）
+if [ -z "$CODESPACE_NAME" ] || [ "$CODESPACE_NAME" = "unknown" ]; then
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    CODESPACE_NAME=$(curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" \
+      https://api.github.com/user/codespaces 2>/dev/null \
+      | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+  fi
 fi
 export CODESPACE_NAME
 echo "[bootstrap] CODESPACE_NAME=${CODESPACE_NAME:-unknown}"
@@ -77,22 +82,23 @@ if command -v redis-cli >/dev/null 2>&1 && command -v redis-server >/dev/null 2>
 fi
 [ -z "$REDIS_URL" ] && echo "[bootstrap] Redis 未启用，使用内存模式"
 
-# ============ 3) 安装依赖（强制，确保 node_modules 完整） ============
+# ============ 3) 安装依赖（强制装全，包括 devDependencies 用于构建） ============
+# 检查关键构建工具是否就位（vite 是 devDependency）
 NEED_INSTALL=0
 if [ ! -d node_modules ] || [ ! -f node_modules/.package-lock.json ]; then
   NEED_INSTALL=1
-elif [ ! -f node_modules/tsx/dist/cli.mjs ]; then
+elif [ ! -d node_modules/vite ] || [ ! -d node_modules/tsx ]; then
   NEED_INSTALL=1
 fi
 if [ "$NEED_INSTALL" = "1" ]; then
-  echo "[bootstrap] 安装依赖（npm ci 复用 package-lock）"
+  echo "[bootstrap] 安装依赖（含 devDependencies，用于 vite 构建）"
   if [ -f package-lock.json ]; then
     npm ci --no-audit --no-fund 2>&1 | tail -5 || npm install --no-audit --no-fund 2>&1 | tail -5
   else
     npm install --no-audit --no-fund 2>&1 | tail -5
   fi
 else
-  echo "[bootstrap] node_modules 已存在，跳过安装"
+  echo "[bootstrap] node_modules 完整，跳过安装"
 fi
 
 # ============ 4) 构建前端 ============
