@@ -329,6 +329,18 @@ jobs:
             echo "APK 无变化，跳过提交"
           else
             git commit -m "chore: 更新签名版 ChatRoom.apk [skip ci]"
-            git push
+            # 防止其他 push（例如 CI 同步的配置 commit、codespace 配置改动）比本 build 新导致 rejected
+            # —— 最多重试 3 次 pull --rebase 再 push
+            RETRY=0
+            while ! git push; do
+              RETRY=$((RETRY + 1))
+              if [ $RETRY -ge 3 ]; then
+                echo "❌ push 重试 $RETRY 次均失败，放弃"
+                exit 1
+              fi
+              echo "⚠ push 被拒，第 $RETRY 次 fetch + rebase 后重试..."
+              git fetch origin master
+              git rebase origin/master
+            done
             echo "✅ 签名 APK 已替换到源代码 public/ChatRoom.apk"
           fi
