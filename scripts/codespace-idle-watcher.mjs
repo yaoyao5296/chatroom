@@ -35,6 +35,11 @@ const WARMUP_MS = 5 * 60 * 1000         // 启动后 5 分钟内不触发停止
 const CHECK_INTERVAL_MS = 60 * 1000     // 每 60 秒检查一次
 const STOP_CONFIRM_DELAY_MS = 30 * 1000 // 停止前再等 30 秒确认（防误判）
 
+// IDLE_WATCHER_MODE:
+//   - "stop"    空闲超时 → 调用 GitHub API 停止 Codespace（需要 Cloudflare Worker 做唤醒入口，否则停了无法恢复）
+//   - "monitor" 空闲超时 → 仅记录日志，不真正停止（推荐：无唤醒入口的默认模式，避免自杀）
+const WATCHER_MODE = (process.env.IDLE_WATCHER_MODE || 'monitor').toLowerCase() === 'stop' ? 'stop' : 'monitor'
+
 const GH_PAT = process.env.GH_PAT || ''
 const CODESPACE_NAME = process.env.CODESPACE_NAME || ''
 
