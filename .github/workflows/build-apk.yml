@@ -324,7 +324,19 @@ jobs:
           sha256sum public/ChatRoom.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/ChatRoom.apk
+          # 关键：避免 public/ChatRoom.apk 被仓库根 .gitattributes 的 *.apk LFS 规则转换为指针（否则下载下来只有 133 字节）
+          git -c filter.lfs.process= -c filter.lfs.smudge=cat -c filter.lfs.clean=cat add public/ChatRoom.apk
+          # 再次确认 staged 的对象是"真实二进制"不是 LFS 指针
+          STAGED_SIZE=$(git cat-file -s :public/ChatRoom.apk 2>/dev/null || echo 0)
+          echo "Staged object size: $STAGED_SIZE bytes (APK 实际大小应 > 20MB，若是 LFS 指针则为 ~133 bytes)"
+          if [ "$STAGED_SIZE" -lt 1000000 ]; then
+            echo "❌ staged APK 只有 $STAGED_SIZE 字节（疑似 LFS 指针），终止提交"
+            # 强制把真实二进制写入 git 对象（绕过 .gitattributes）
+            BLOB=$(git hash-object -w public/ChatRoom.apk)
+            echo "真实 blob: $BLOB"
+            git update-index --cacheinfo 100644,$BLOB,public/ChatRoom.apk
+            echo "✅ 已用真实 blob 重新入暂存区"
+          fi
           if git diff --cached --quiet; then
             echo "APK 无变化，跳过提交"
           else
