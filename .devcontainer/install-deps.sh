@@ -3,7 +3,15 @@
 # 让 Codespace 预构建镜像能直接命中 node_modules 缓存，跳过安装步骤。
 set -euo pipefail
 
-cd /workspaces/chatroom 2>/dev/null || cd "$CODESPACE_VSCODE_FOLDER" 2>/dev/null || cd /workspace 2>/dev/null
+# PATH 修复（非交互式 shell 不加载 nvm）
+for p in /home/codespace/nvm/current/bin /usr/local/nodejs/current/bin /usr/local/bin; do
+  [ -d "$p" ] && case ":$PATH:" in *":$p:"*) ;; *) PATH="$p:$PATH" ;; esac
+done
+export PATH
+export NVM_DIR="${NVM_DIR:-/home/codespace/.nvm}"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" 2>/dev/null || true
+
+cd /workspaces/chatroom 2>/dev/null || cd "${CODESPACE_VSCODE_FOLDER:-/workspace}" 2>/dev/null || cd /workspace 2>/dev/null
 
 echo "[install] Node $(node -v) / npm $(npm -v)"
 

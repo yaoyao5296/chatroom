@@ -2,6 +2,15 @@
 # Codespace 每次启动时运行 —— 构建产物 + 上报公开 URL + 启动服务 + 拉起空闲守护
 set -euo pipefail
 
+# ============ 0) PATH 修复（非交互式 ssh 不加载 nvm，需手动加 node/npm） ============
+for p in /home/codespace/nvm/current/bin /usr/local/nodejs/current/bin /usr/local/bin; do
+  [ -d "$p" ] && case ":$PATH:" in *":$p:"*) ;; *) PATH="$p:$PATH" ;; esac
+done
+export PATH
+# 加载 nvm（若存在）
+export NVM_DIR="${NVM_DIR:-/home/codespace/.nvm}"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" 2>/dev/null || true
+
 echo "[bootstrap] Codespace 启动于 $(date -u +%FT%TZ)"
 
 # CODESPACE_NAME 在非交互式 ssh 下可能没注入，多重兜底
