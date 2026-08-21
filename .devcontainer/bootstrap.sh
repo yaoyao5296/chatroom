@@ -6,7 +6,6 @@ echo "[bootstrap] Codespace 启动于 $(date -u +%FT%TZ)"
 
 # CODESPACE_NAME 在非交互式 ssh 下可能没注入，多重兜底
 if [ -z "${CODESPACE_NAME:-}" ] || [ "${CODESPACE_NAME:-}" = "unknown" ]; then
-  # 尝试从 CODESPACE 环境变量或文件读取
   CODESPACE_NAME="${CODESPACE_NAME:-${CODESPACE:-}}"
   if [ -z "$CODESPACE_NAME" ] && command -v gh >/dev/null 2>&1; then
     CODESPACE_NAME=$(gh codespace list --json name -q '.[0].name' 2>/dev/null || true)
@@ -17,7 +16,8 @@ echo "[bootstrap] CODESPACE_NAME=${CODESPACE_NAME:-unknown}"
 
 # 确定项目根目录（ssh 进来可能在 ~，不在项目目录）
 ROOT=""
-for d in /workspaces/chatroom "$CODESPACE_VSCODE_FOLDER" /workspace .; do
+for d in /workspaces/chatroom "${CODESPACE_VSCODE_FOLDER:-}" /workspace .; do
+  [ -z "$d" ] && continue
   if [ -f "$d/package.json" ] && [ -f "$d/.devcontainer/bootstrap.sh" ]; then
     ROOT="$d"; break
   fi
