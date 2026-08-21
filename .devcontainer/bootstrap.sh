@@ -28,17 +28,22 @@ echo "[bootstrap] 工作目录: $ROOT"
 
 # ============ 0.7) 确定 CODESPACE_NAME ============
 CODESPACE_NAME="${CODESPACE_NAME:-${CODESPACE:-}}"
-# 兜底：Codespace 会把 name 写到 /etc/codespace-name 或环境
+# 兜底 1：Codespace 会把 name 写到 /etc/codespace-name
 if [ -z "$CODESPACE_NAME" ] || [ "$CODESPACE_NAME" = "unknown" ]; then
   CODESPACE_NAME=$(cat /etc/codespace-name 2>/dev/null || echo "")
 fi
-# 兜底 2：hostname（Codespace 容器 hostname 不是 codespace name，跳过）
-# 兜底 3：通过 GitHub API 查（用 codespace 内的 GITHUB_TOKEN）
+# 兜底 2：/workspaces/.codespace 目录下的 name 文件（新版 codespace）
 if [ -z "$CODESPACE_NAME" ] || [ "$CODESPACE_NAME" = "unknown" ]; then
-  if [ -n "${GITHUB_TOKEN:-}" ]; then
-    CODESPACE_NAME=$(curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" \
+  CODESPACE_NAME=$(cat /workspaces/.codespace/name 2>/dev/null || echo "")
+fi
+# 兜底 3：hostname 前缀（通常 codespace hostname 形如 codespaces-xxxxx，name 是另一形式；跳过）
+# 兜底 4：通过 GitHub API 查（用 codespace 内的 GITHUB_TOKEN 或 GH_PAT）
+if [ -z "$CODESPACE_NAME" ] || [ "$CODESPACE_NAME" = "unknown" ]; then
+  _TOK="${GH_PAT:-${GITHUB_TOKEN:-}}"
+  if [ -n "$_TOK" ]; then
+    CODESPACE_NAME=$(curl -sS -m 8 -H "Authorization: Bearer $_TOK" \
       https://api.github.com/user/codespaces 2>/dev/null \
-      | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+      | grep -oE '"name":"[^"]+"' | head -1 | cut -d'"' -f4 || true)
   fi
 fi
 export CODESPACE_NAME
@@ -140,18 +145,59 @@ if [ "$REBUILD" = "1" ]; then
 fi
 
 # ============ 5) 启动服务 ============
-pkill -f "tsx api/server.ts" 2>/dev/null || true
+pkill -9 -f "tsx api/server.ts" 2>/dev/null || true
+pkill -9 -f "codespace-idle-watcher" 2>/dev/null || true
 sleep 1
 mkdir -p logs data uploads
 
-echo "[bootstrap] 启动 chatroom 服务（端口 3001）"
-nohup node \
-  --max-old-space-size=384 --optimize-for-size --max-semi-space-size=2 \
-  --import tsx api/server.ts \
-  > logs/server.log 2>&1 &
-SERVER_PID=$!
-echo "[bootstrap] server PID=$SERVER_PID"
-echo "$SERVER_PID" > .server.pid
+# .env 里可能写了 MAIL_* / GH_PAT，优先级最高：让 node 通过 --env-file 加载
+# 另外设置 CODESPACE_NAME 回写到 .env（保证启动脚本与 .env 同步）
+if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ]; then
+  # 已存在则更新；不存在则追加
+  if [ -f .env ] && grep -q "^CODESPACE_NAME=" .env 2>/dev/null; then
+    sed -i "s|^CODESPACE_NAME=.*|CODESPACE_NAME=$CODESPACE_NAME|" .env 2>/dev/null || true
+  else
+    echo "CODESPACE_NAME=$CODESPACE_NAME" >> .env 2>/dev/null || true
+  fi
+fi
+
+# 用 setsid + setsid 启动：脱离当前 session（postStart 脚本父进程退出不会被 SIGHUP 带死）
+# heap 上限 768MB（Codespace 8GB RAM 机器下足够），不要 --optimize-for-size 会降冷启动和并发性能
+NODE_ARGS="--max-old-space-size=768 --import tsx"
+if [ -f .env ]; then
+  NODE_ARGS="--env-file=.env $NODE_ARGS"
+fi
+
+echo "[bootstrap] 启动 chatroom 服务（端口 3001）：setsid node $NODE_ARGS api/server.ts"
+# stdout/stderr 分开，便于看错误
+setsid bash -c "cd '$ROOT' && node $NODE_ARGS api/server.ts >> logs/server.stdout.log 2>> logs/server.stderr.log" \
+  < /dev/null > /dev/null 2>&1 &
+LAUNCHER_PID=$!
+# 记录 launcher PID；实际 server PID 稍后健康检查轮询时从 /proc 找到或写入 .server.pid
+disown 2>/dev/null || true
+
+# 轮询等 PID 文件或 3001 监听，最多 30 秒
+SERVER_PID=""
+for i in $(seq 1 30); do
+  if [ -f .server.pid ] && kill -0 "$(cat .server.pid)" 2>/dev/null; then
+    SERVER_PID=$(cat .server.pid)
+    break
+  fi
+  # 从监听找
+  _LISTEN_PID=$( (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep ':3001\b' | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2 )
+  if [ -n "$_LISTEN_PID" ]; then
+    SERVER_PID=$_LISTEN_PID
+    echo "$SERVER_PID" > .server.pid
+    break
+  fi
+  sleep 1
+done
+# 兜底：从 ps 找 tsx api/server
+if [ -z "$SERVER_PID" ]; then
+  SERVER_PID=$(ps -eo pid,args | grep -E 'tsx api/server' | grep -v grep | head -1 | awk '{print $1}')
+  [ -n "$SERVER_PID" ] && echo "$SERVER_PID" > .server.pid || true
+fi
+echo "[bootstrap] server PID=${SERVER_PID:-unknown}  launcher=$LAUNCHER_PID"
 
 # 等服务就绪（最多 40 秒）
 READY=0
