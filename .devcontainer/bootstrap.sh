@@ -220,25 +220,26 @@ if [ ! -x "$BORE_BIN" ]; then
 fi
 
 # 启动 Bore 转发：本地 3001 -> bore.pub，请求固定端口 31425
+# 用 PM2 管理 bore 进程（daemon 独立于 SSH 会话，避免 SSH 退出被杀）
 if [ -x "$BORE_BIN" ]; then
-  pkill -9 -f "bore local" 2>/dev/null || true
+  npx pm2 delete bore 2>/dev/null || true
   echo "[bootstrap] 启动 Bore 转发（local 3001 -> bore.pub:31425）"
-  nohup "$BORE_BIN" local 3001 --to bore.pub --port 31425 > logs/bore.log 2>&1 &
-  echo $! > .bore.pid
-  # 等待 Bore 连接建立并解析分配到的公网地址
-  BORE_URL=""
+  npx pm2 start "$BORE_BIN" --name bore --interpreter none -- local 3001 --to bore.pub --port 31425 2>&1 | tail -2
+  # 等待 Bore 连接建立并探测转发是否就绪（直接请求 bore.pub:31425 的 health 接口）
+  BORE_URL="http://bore.pub:31425"
+  BORE_OK=0
   for i in $(seq 1 15); do
-    # bore 输出形如："listening at bore.pub:31425"
-    BORE_PORT=$(grep -oE "bore\.pub:[0-9]+" logs/bore.log 2>/dev/null | head -1 | cut -d: -f2)
-    [ -n "$BORE_PORT" ] && { BORE_URL="https://bore.pub:${BORE_PORT}"; break; }
+    if curl -sf -m 3 "$BORE_URL/api/health" >/dev/null 2>&1; then
+      BORE_OK=1; break
+    fi
     sleep 1
   done
-  if [ -n "$BORE_URL" ]; then
+  if [ "$BORE_OK" = "1" ]; then
     echo "[bootstrap] ✓ Bore 转发就绪: $BORE_URL"
     echo "$BORE_URL" > .bore-url
   else
     echo "[bootstrap] ⚠ Bore 转发未就绪，最近日志："
-    tail -5 logs/bore.log 2>/dev/null
+    npx pm2 logs bore --lines 5 --nostream 2>&1 | tail -8
   fi
 else
   echo "[bootstrap] ⚠ Bore 未安装，跳过端口转发"
