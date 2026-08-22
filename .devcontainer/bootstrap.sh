@@ -211,9 +211,27 @@ fi
 npx pm2 save 2>&1 | tail -2
 
 # 设置端口 3001 为 public（Codespace 重启后端口可见性会重置为 private）
+# Codespace 内默认无 gh CLI，需先安装；用 Codespace 内置 GITHUB_TOKEN 认证
 if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ]; then
-  echo "[bootstrap] 设置端口 3001 为 public"
-  gh codespace ports visibility 3001:public -c "$CODESPACE_NAME" 2>/dev/null || true
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "[bootstrap] 安装 gh CLI（用于设置端口可见性）"
+    # 添加 GitHub CLI 官方源并安装
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg 2>/dev/null \
+      | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null || true
+    sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null || true
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null 2>&1 || true
+    sudo apt-get update -qq 2>/dev/null
+    sudo apt-get install -y gh >/dev/null 2>&1 || true
+  fi
+  # 用 Codespace 内置的 GITHUB_TOKEN 认证 gh
+  if command -v gh >/dev/null 2>&1 && [ -n "${GITHUB_TOKEN:-}" ]; then
+    echo "[bootstrap] 设置端口 3001 为 public"
+    echo "$GITHUB_TOKEN" | gh auth login --with-token 2>/dev/null
+    gh codespace ports visibility 3001:public -c "$CODESPACE_NAME" 2>/dev/null || true
+  else
+    echo "[bootstrap] ⚠ gh 未安装或 GITHUB_TOKEN 缺失，端口可能为 private"
+  fi
 fi
 
 # ============ 6) 写入公开 URL 到本地文件（不 push，由外部读取或 GitHub API 查） ============
