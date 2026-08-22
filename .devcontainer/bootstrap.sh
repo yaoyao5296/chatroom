@@ -124,35 +124,25 @@ else
   echo "[bootstrap] node_modules 完整，跳过安装"
 fi
 
-# ============ 4) 构建前端 ============
-REBUILD=0
-if [ ! -f dist/index.html ]; then
-  REBUILD=1
-elif [ -n "$(find src api -name '*.tsx' -o -name '*.ts' -newer dist/index.html 2>/dev/null | head -1)" ]; then
-  REBUILD=1
+# ============ 4) Redis 安装检查（install-deps.sh 已预装，这里只兜底） ============
+if ! command -v redis-server >/dev/null 2>&1; then
+  echo "[bootstrap] Redis 未装（install-deps.sh 可能未执行），快速安装"
+  sudo apt-get update -qq 2>/dev/null
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y redis-server redis-tools >/dev/null 2>&1 || true
 fi
-if [ "$REBUILD" = "1" ]; then
-  echo "[bootstrap] 构建前端产物"
-  if ! npx vite build 2>&1 | tail -10; then
-    echo "[bootstrap] ⚠ vite build 失败，尝试用现有 dist"
-  fi
-fi
+mkdir -p "$ROOT/.redis-data"
 
-# ============ 5) 启动服务（PM2 统一管理 Redis + chatroom） ============
-# 清理可能残留的旧进程（setsid 方式或之前的 PM2 进程）
+# ============ 5) 启动服务（PM2 并行启动 redis + chatroom，端口设置后台执行） ============
+# 清理残留进程
 pkill -9 -f "tsx api/server.ts" 2>/dev/null || true
 pkill -9 -f "redis-server.*6379" 2>/dev/null || true
 pkill -9 -f "codespace-idle-watcher" 2>/dev/null || true
-# 停止并删除 PM2 中已有的同名进程（避免重复启动报错）
 npx pm2 delete redis 2>/dev/null || true
 npx pm2 delete chatroom 2>/dev/null || true
-sleep 1
 mkdir -p logs data uploads
 
-# .env 里可能写了 MAIL_* / GH_PAT，优先级最高：让 node 通过 --env-file 加载
-# 另外设置 CODESPACE_NAME 回写到 .env（保证启动脚本与 .env 同步）
+# .env 回写 CODESPACE_NAME
 if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ]; then
-  # 已存在则更新；不存在则追加
   if [ -f .env ] && grep -q "^CODESPACE_NAME=" .env 2>/dev/null; then
     sed -i "s|^CODESPACE_NAME=.*|CODESPACE_NAME=$CODESPACE_NAME|" .env 2>/dev/null || true
   else
@@ -160,41 +150,45 @@ if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ]; then
   fi
 fi
 
-# 启动 Redis（PM2 管理，崩溃自动重启；指定 --dir 到可写目录避免 RDB 权限问题）
+# 并行启动 Redis 和 chatroom（chatroom 内部会重试连接 Redis，无需等 Redis 就绪）
+echo "[bootstrap] 并行启动 Redis + chatroom"
 if command -v redis-server >/dev/null 2>&1; then
-  echo "[bootstrap] 启动 Redis（PM2 管理）"
   npx pm2 start redis-server --name redis --interpreter none \
     -- --port 6379 --bind 127.0.0.1 --daemonize no --save "" --appendonly no \
-    --dir "$ROOT/.redis-data" --maxmemory 64mb --maxmemory-policy allkeys-lru 2>&1 | tail -3
-  sleep 2
-  if redis-cli -p 6379 ping >/dev/null 2>&1; then
-    export REDIS_URL="redis://127.0.0.1:6379"
-    # 同步到 .env
-    if [ -f .env ] && grep -q "^REDIS_URL=" .env 2>/dev/null; then
-      sed -i "s|^REDIS_URL=.*|REDIS_URL=$REDIS_URL|" .env 2>/dev/null || true
-    else
-      echo "REDIS_URL=$REDIS_URL" >> .env 2>/dev/null || true
-    fi
-    echo "[bootstrap] ✓ Redis 就绪"
-  else
-    echo "[bootstrap] ⚠ Redis 启动失败，chatroom 将回退内存模式"
-  fi
+    --dir "$ROOT/.redis-data" --maxmemory 64mb --maxmemory-policy allkeys-lru 2>&1 | tail -2 &
 fi
-
-# 启动 chatroom（PM2 管理，用 ecosystem.config.cjs 定义）
-echo "[bootstrap] 启动 chatroom 服务（PM2 管理，端口 3001）"
 if [ -f ecosystem.config.cjs ]; then
-  npx pm2 start ecosystem.config.cjs 2>&1 | tail -5
+  npx pm2 start ecosystem.config.cjs 2>&1 | tail -3 &
 else
-  # 兜底：直接用 pm2 start
   NODE_ARGS="--max-old-space-size=768 --import tsx"
   [ -f .env ] && NODE_ARGS="--env-file=.env $NODE_ARGS"
-  npx pm2 start api/server.ts --name chatroom --interpreter node --interpreter-args "$NODE_ARGS" 2>&1 | tail -5
+  npx pm2 start api/server.ts --name chatroom --interpreter node --interpreter-args "$NODE_ARGS" 2>&1 | tail -3 &
+fi
+wait
+
+# 同步 REDIS_URL 到 .env
+if redis-cli -p 6379 ping >/dev/null 2>&1; then
+  export REDIS_URL="redis://127.0.0.1:6379"
+  if [ -f .env ] && grep -q "^REDIS_URL=" .env 2>/dev/null; then
+    sed -i "s|^REDIS_URL=.*|REDIS_URL=$REDIS_URL|" .env 2>/dev/null || true
+  else
+    echo "REDIS_URL=$REDIS_URL" >> .env 2>/dev/null || true
+  fi
+  echo "[bootstrap] ✓ Redis 就绪"
+else
+  echo "[bootstrap] ⚠ Redis 未就绪，chatroom 将回退内存模式"
 fi
 
-# 等服务就绪（最多 60 秒，PM2 + tsx 冷启动较慢）
+# 端口设置后台执行（不阻塞服务就绪检查）
+if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ] && command -v gh >/dev/null 2>&1 && [ -n "${GITHUB_TOKEN:-}" ]; then
+  ( echo "$GITHUB_TOKEN" | gh auth login --with-token 2>/dev/null
+    gh codespace ports visibility 3001:public -c "$CODESPACE_NAME" 2>/dev/null
+    echo "[bootstrap] ✓ 端口 3001 已设为 public" ) &
+fi
+
+# 等服务就绪（最多 30 秒）
 READY=0
-for i in $(seq 1 60); do
+for i in $(seq 1 30); do
   if curl -sf http://localhost:3001/api/health >/dev/null 2>&1; then
     echo "[bootstrap] ✓ chatroom 就绪（用时 ${i}s）"
     READY=1
@@ -204,35 +198,11 @@ for i in $(seq 1 60); do
 done
 if [ "$READY" = "0" ]; then
   echo "[bootstrap] ✘ chatroom 未就绪，最近日志："
-  npx pm2 logs chatroom --lines 20 --nostream 2>&1 | tail -25
+  npx pm2 logs chatroom --lines 15 --nostream 2>&1 | tail -20
 fi
 
-# 保存 PM2 进程列表（下次 Codespace 启动时 PM2 resurrection 会自动恢复）
+# 保存 PM2 进程列表
 npx pm2 save 2>&1 | tail -2
-
-# 设置端口 3001 为 public（Codespace 重启后端口可见性会重置为 private）
-# Codespace 内默认无 gh CLI，需先安装；用 Codespace 内置 GITHUB_TOKEN 认证
-if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ]; then
-  if ! command -v gh >/dev/null 2>&1; then
-    echo "[bootstrap] 安装 gh CLI（用于设置端口可见性）"
-    # 添加 GitHub CLI 官方源并安装
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg 2>/dev/null \
-      | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null || true
-    sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null || true
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-      | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null 2>&1 || true
-    sudo apt-get update -qq 2>/dev/null
-    sudo apt-get install -y gh >/dev/null 2>&1 || true
-  fi
-  # 用 Codespace 内置的 GITHUB_TOKEN 认证 gh
-  if command -v gh >/dev/null 2>&1 && [ -n "${GITHUB_TOKEN:-}" ]; then
-    echo "[bootstrap] 设置端口 3001 为 public"
-    echo "$GITHUB_TOKEN" | gh auth login --with-token 2>/dev/null
-    gh codespace ports visibility 3001:public -c "$CODESPACE_NAME" 2>/dev/null || true
-  else
-    echo "[bootstrap] ⚠ gh 未安装或 GITHUB_TOKEN 缺失，端口可能为 private"
-  fi
-fi
 
 # ============ 6) 写入公开 URL 到本地文件（不 push，由外部读取或 GitHub API 查） ============
 PUBLIC_URL=""

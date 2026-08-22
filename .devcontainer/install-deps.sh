@@ -36,10 +36,20 @@ if [ ! -d dist ] || [ ! -f dist/index.html ]; then
 fi
 
 # 创建必要目录
-mkdir -p data uploads logs
+mkdir -p data uploads logs .redis-data
 
-# 确保端口 3001 公开（ Codespace 端口转发默认 private ）
-echo "[install] 设置端口 3001 公开可见"
-gh codespace ports visibility 3001:public -c "$CODESPACE_NAME" 2>/dev/null || true
+# 预装 gh CLI（用于 bootstrap.sh 设置端口可见性）和 redis-server
+echo "[install] 预装 gh CLI 和 Redis"
+if ! command -v gh >/dev/null 2>&1; then
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null || true
+  sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null || true
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null 2>&1 || true
+fi
+# 一次性装 gh + redis（bootstrap.sh 每次启动都需要这两个）
+sudo apt-get update -qq 2>/dev/null
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y gh redis-server redis-tools >/dev/null 2>&1 || true
+echo "[install] gh=$(gh --version 2>/dev/null | head -1)  redis=$(redis-server --version 2>/dev/null | head -1)"
 
 echo "[install] 完成"
