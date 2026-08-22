@@ -325,9 +325,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # 关键：public/ChatRoom.apk 被 .gitattributes 的 *.apk LFS 规则管控，
-          # 直接 git add 会触发 LFS clean filter（在某些 git 版本下失败：fatal: clean filter 'lfs' failed）
-          # 解决：完全绕过 git add，用 git hash-object -w 写真实二进制 blob + git update-index 入暂存区
-          BLOB=$(git hash-object -w public/ChatRoom.apk)
+          # git add / git hash-object 都会触发 LFS clean filter，把 APK 转成 133 字节的 LFS 指针
+          # 解决：git hash-object --no-filters 完全绕过 .gitattributes，直接写真实二进制 blob
+          BLOB=$(git hash-object --no-filters -w public/ChatRoom.apk)
           BLOB_SIZE=$(git cat-file -s "$BLOB")
           echo "真实二进制 blob: $BLOB (size=$BLOB_SIZE bytes)"
           git update-index --add --cacheinfo 100644,$BLOB,public/ChatRoom.apk
