@@ -52,4 +52,22 @@ sudo apt-get update -qq 2>/dev/null
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y gh redis-server redis-tools >/dev/null 2>&1 || true
 echo "[install] gh=$(gh --version 2>/dev/null | head -1)  redis=$(redis-server --version 2>/dev/null | head -1)"
 
+# 预装 Bore（用于 bootstrap.sh 端口转发，免 GitHub 登录访问 chatroom）
+echo "[install] 预装 Bore（端口转发工具）"
+BORE_BIN="/usr/local/bin/bore"
+if [ ! -x "$BORE_BIN" ]; then
+  BORE_VERSION="0.5.1"
+  ARCH=$(uname -m)
+  case "$ARCH" in
+    x86_64|amd64)  BORE_TAR="bore-v${BORE_VERSION}-x86_64-unknown-linux-musl.tar.gz" ;;
+    aarch64|arm64) BORE_TAR="bore-v${BORE_VERSION}-aarch64-unknown-linux-musl.tar.gz" ;;
+    *)             BORE_TAR="bore-v${BORE_VERSION}-x86_64-unknown-linux-musl.tar.gz" ;;
+  esac
+  curl -fsSL "https://github.com/ekzhang/bore/releases/download/v${BORE_VERSION}/${BORE_TAR}" \
+    | sudo tar xz -C /usr/local/bin/ 2>/dev/null \
+    && sudo chmod +x "$BORE_BIN" 2>/dev/null \
+    || echo "[install] ⚠ Bore 下载失败，bootstrap 时再试"
+fi
+echo "[install] bore=$(/usr/local/bin/bore --version 2>/dev/null | head -1 || echo '未安装')"
+
 echo "[install] 完成"

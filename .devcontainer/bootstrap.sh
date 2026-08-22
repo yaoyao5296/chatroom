@@ -201,9 +201,57 @@ fi
 # 保存 PM2 进程列表
 npx pm2 save 2>&1 | tail -2
 
-# ============ 6) 写入公开 URL 到本地文件（不 push，由外部读取或 GitHub API 查） ============
+# ============ 5.5) Bore pub 端口转发（3001 -> bore.pub:31425，免 GitHub 登录访问） ============
+# Bore 让访问者无需登录 GitHub 即可访问 chatroom，替换 Cloudflare Tunnel 方案
+BORE_BIN="/usr/local/bin/bore"
+if [ ! -x "$BORE_BIN" ]; then
+  echo "[bootstrap] 安装 Bore 预编译二进制"
+  BORE_VERSION="0.5.1"
+  ARCH=$(uname -m)
+  case "$ARCH" in
+    x86_64|amd64)  BORE_TAR="bore-v${BORE_VERSION}-x86_64-unknown-linux-musl.tar.gz" ;;
+    aarch64|arm64) BORE_TAR="bore-v${BORE_VERSION}-aarch64-unknown-linux-musl.tar.gz" ;;
+    *)             BORE_TAR="bore-v${BORE_VERSION}-x86_64-unknown-linux-musl.tar.gz" ;;
+  esac
+  curl -fsSL "https://github.com/ekzhang/bore/releases/download/v${BORE_VERSION}/${BORE_TAR}" \
+    | sudo tar xz -C /usr/local/bin/ 2>/dev/null \
+    && sudo chmod +x "$BORE_BIN" 2>/dev/null \
+    || echo "[bootstrap] ⚠ Bore 二进制下载失败"
+fi
+
+# 启动 Bore 转发：本地 3001 -> bore.pub，请求固定端口 31425
+if [ -x "$BORE_BIN" ]; then
+  pkill -9 -f "bore local" 2>/dev/null || true
+  echo "[bootstrap] 启动 Bore 转发（local 3001 -> bore.pub:31425）"
+  nohup "$BORE_BIN" local 3001 --to bore.pub --port 31425 > logs/bore.log 2>&1 &
+  echo $! > .bore.pid
+  # 等待 Bore 连接建立并解析分配到的公网地址
+  BORE_URL=""
+  for i in $(seq 1 15); do
+    # bore 输出形如："listening at bore.pub:31425"
+    BORE_PORT=$(grep -oE "bore\.pub:[0-9]+" logs/bore.log 2>/dev/null | head -1 | cut -d: -f2)
+    [ -n "$BORE_PORT" ] && { BORE_URL="https://bore.pub:${BORE_PORT}"; break; }
+    sleep 1
+  done
+  if [ -n "$BORE_URL" ]; then
+    echo "[bootstrap] ✓ Bore 转发就绪: $BORE_URL"
+    echo "$BORE_URL" > .bore-url
+  else
+    echo "[bootstrap] ⚠ Bore 转发未就绪，最近日志："
+    tail -5 logs/bore.log 2>/dev/null
+  fi
+else
+  echo "[bootstrap] ⚠ Bore 未安装，跳过端口转发"
+fi
+
+# ============ 6) 写入公开 URL 到本地文件（优先使用 Bore URL，无需 GitHub 登录） ============
 PUBLIC_URL=""
-if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ]; then
+# 优先使用 Bore 转发地址（免登录）
+if [ -f .bore-url ]; then
+  PUBLIC_URL=$(cat .bore-url 2>/dev/null)
+fi
+# 兜底：使用 Codespace 原生公开 URL（需登录 GitHub）
+if [ -z "$PUBLIC_URL" ] && [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ]; then
   PUBLIC_URL="https://${CODESPACE_NAME}-3001.app.github.dev"
 fi
 if [ -n "$PUBLIC_URL" ]; then
