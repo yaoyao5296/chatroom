@@ -155,7 +155,7 @@ echo "[bootstrap] 并行启动 Redis + chatroom"
 if command -v redis-server >/dev/null 2>&1; then
   npx pm2 start redis-server --name redis --interpreter none \
     -- --port 6379 --bind 127.0.0.1 --daemonize no --save "" --appendonly no \
-    --dir "$ROOT/.redis-data" --maxmemory 64mb --maxmemory-policy allkeys-lru 2>&1 | tail -2 &
+    --dir "$ROOT/.redis-data" --maxmemory 64mb --maxmemory-policy allkeys-lru 2>&1 | tail -2
 fi
 if [ -f ecosystem.config.cjs ]; then
   npx pm2 start ecosystem.config.cjs 2>&1 | tail -3 &
@@ -164,7 +164,14 @@ else
   [ -f .env ] && NODE_ARGS="--env-file=.env $NODE_ARGS"
   npx pm2 start api/server.ts --name chatroom --interpreter node --interpreter-args "$NODE_ARGS" 2>&1 | tail -3 &
 fi
-wait
+
+# 前台设置端口 public（与 chatroom 冷启动并行执行，不增加额外时间）
+if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ] && command -v gh >/dev/null 2>&1 && [ -n "${GITHUB_TOKEN:-}" ]; then
+  echo "[bootstrap] 设置端口 3001 为 public"
+  echo "$GITHUB_TOKEN" | gh auth login --with-token 2>/dev/null
+  gh codespace ports visibility 3001:public -c "$CODESPACE_NAME" 2>/dev/null && echo "[bootstrap] ✓ 端口已 public" || echo "[bootstrap] ⚠ 端口设置失败"
+fi
+wait  # 等 chatroom 启动完成
 
 # 同步 REDIS_URL 到 .env
 if redis-cli -p 6379 ping >/dev/null 2>&1; then
@@ -174,16 +181,6 @@ if redis-cli -p 6379 ping >/dev/null 2>&1; then
   else
     echo "REDIS_URL=$REDIS_URL" >> .env 2>/dev/null || true
   fi
-  echo "[bootstrap] ✓ Redis 就绪"
-else
-  echo "[bootstrap] ⚠ Redis 未就绪，chatroom 将回退内存模式"
-fi
-
-# 端口设置后台执行（不阻塞服务就绪检查）
-if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ] && command -v gh >/dev/null 2>&1 && [ -n "${GITHUB_TOKEN:-}" ]; then
-  ( echo "$GITHUB_TOKEN" | gh auth login --with-token 2>/dev/null
-    gh codespace ports visibility 3001:public -c "$CODESPACE_NAME" 2>/dev/null
-    echo "[bootstrap] ✓ 端口 3001 已设为 public" ) &
 fi
 
 # 等服务就绪（最多 30 秒）
