@@ -210,6 +210,12 @@ fi
 # 保存 PM2 进程列表（下次 Codespace 启动时 PM2 resurrection 会自动恢复）
 npx pm2 save 2>&1 | tail -2
 
+# 设置端口 3001 为 public（Codespace 重启后端口可见性会重置为 private）
+if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ]; then
+  echo "[bootstrap] 设置端口 3001 为 public"
+  gh codespace ports visibility 3001:public -c "$CODESPACE_NAME" 2>/dev/null || true
+fi
+
 # ============ 6) 写入公开 URL 到本地文件（不 push，由外部读取或 GitHub API 查） ============
 PUBLIC_URL=""
 if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ]; then
