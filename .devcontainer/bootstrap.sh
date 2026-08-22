@@ -81,20 +81,14 @@ if [ -z "${JWT_SECRET:-}" ]; then
   fi
 fi
 
-# ============ 2) Redis（可选，codespace 默认没装，失败回退内存模式） ============
-if command -v redis-cli >/dev/null 2>&1 && command -v redis-server >/dev/null 2>&1; then
-  if ! redis-cli -p 6379 ping >/dev/null 2>&1; then
-    (redis-server --daemonize yes --save "" --appendonly no --maxmemory 64mb --maxmemory-policy allkeys-lru 2>/dev/null || true)
-    sleep 1
-    if redis-cli -p 6379 ping >/dev/null 2>&1; then
-      export REDIS_URL="redis://127.0.0.1:6379"
-      echo "[bootstrap] Redis 就绪"
-    fi
-  else
-    export REDIS_URL="redis://127.0.0.1:6379"
-  fi
+# ============ 2) 安装 Redis（Codespace 默认镜像不带，需要 apt 安装） ============
+if ! command -v redis-server >/dev/null 2>&1; then
+  echo "[bootstrap] 安装 Redis"
+  sudo apt-get update -qq 2>/dev/null
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y redis-server redis-tools >/dev/null 2>&1 || true
 fi
-[ -z "$REDIS_URL" ] && echo "[bootstrap] Redis 未启用，使用内存模式"
+# Redis 数据目录（node 用户可写，避免 /var/lib/redis 权限问题导致 RDB 加载失败）
+mkdir -p "$ROOT/.redis-data"
 
 # ============ 3) 安装依赖（强制装全，包括 devDependencies 用于构建） ============
 # 检查关键构建工具是否就位（vite 是 devDependency）
@@ -144,9 +138,14 @@ if [ "$REBUILD" = "1" ]; then
   fi
 fi
 
-# ============ 5) 启动服务 ============
+# ============ 5) 启动服务（PM2 统一管理 Redis + chatroom） ============
+# 清理可能残留的旧进程（setsid 方式或之前的 PM2 进程）
 pkill -9 -f "tsx api/server.ts" 2>/dev/null || true
+pkill -9 -f "redis-server.*6379" 2>/dev/null || true
 pkill -9 -f "codespace-idle-watcher" 2>/dev/null || true
+# 停止并删除 PM2 中已有的同名进程（避免重复启动报错）
+npx pm2 delete redis 2>/dev/null || true
+npx pm2 delete chatroom 2>/dev/null || true
 sleep 1
 mkdir -p logs data uploads
 
@@ -161,64 +160,55 @@ if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ]; then
   fi
 fi
 
-# 用 setsid + setsid 启动：脱离当前 session（postStart 脚本父进程退出不会被 SIGHUP 带死）
-# heap 上限 768MB（Codespace 8GB RAM 机器下足够），不要 --optimize-for-size 会降冷启动和并发性能
-NODE_ARGS="--max-old-space-size=768 --import tsx"
-if [ -f .env ]; then
-  NODE_ARGS="--env-file=.env $NODE_ARGS"
+# 启动 Redis（PM2 管理，崩溃自动重启；指定 --dir 到可写目录避免 RDB 权限问题）
+if command -v redis-server >/dev/null 2>&1; then
+  echo "[bootstrap] 启动 Redis（PM2 管理）"
+  npx pm2 start redis-server --name redis --interpreter none \
+    -- --port 6379 --bind 127.0.0.1 --daemonize no --save "" --appendonly no \
+    --dir "$ROOT/.redis-data" --maxmemory 64mb --maxmemory-policy allkeys-lru 2>&1 | tail -3
+  sleep 2
+  if redis-cli -p 6379 ping >/dev/null 2>&1; then
+    export REDIS_URL="redis://127.0.0.1:6379"
+    # 同步到 .env
+    if [ -f .env ] && grep -q "^REDIS_URL=" .env 2>/dev/null; then
+      sed -i "s|^REDIS_URL=.*|REDIS_URL=$REDIS_URL|" .env 2>/dev/null || true
+    else
+      echo "REDIS_URL=$REDIS_URL" >> .env 2>/dev/null || true
+    fi
+    echo "[bootstrap] ✓ Redis 就绪"
+  else
+    echo "[bootstrap] ⚠ Redis 启动失败，chatroom 将回退内存模式"
+  fi
 fi
 
-echo "[bootstrap] 启动 chatroom 服务（端口 3001）：setsid node $NODE_ARGS api/server.ts"
-# stdout/stderr 分开，便于看错误
-setsid bash -c "cd '$ROOT' && node $NODE_ARGS api/server.ts >> logs/server.stdout.log 2>> logs/server.stderr.log" \
-  < /dev/null > /dev/null 2>&1 &
-LAUNCHER_PID=$!
-# 记录 launcher PID；实际 server PID 稍后健康检查轮询时从 /proc 找到或写入 .server.pid
-disown 2>/dev/null || true
-
-# 轮询等 PID 文件或 3001 监听，最多 30 秒
-SERVER_PID=""
-for i in $(seq 1 30); do
-  if [ -f .server.pid ] && kill -0 "$(cat .server.pid)" 2>/dev/null; then
-    SERVER_PID=$(cat .server.pid)
-    break
-  fi
-  # 从监听找
-  _LISTEN_PID=$( (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep ':3001\b' | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2 )
-  if [ -n "$_LISTEN_PID" ]; then
-    SERVER_PID=$_LISTEN_PID
-    echo "$SERVER_PID" > .server.pid
-    break
-  fi
-  sleep 1
-done
-# 兜底：从 ps 找 tsx api/server
-if [ -z "$SERVER_PID" ]; then
-  SERVER_PID=$(ps -eo pid,args | grep -E 'tsx api/server' | grep -v grep | head -1 | awk '{print $1}')
-  [ -n "$SERVER_PID" ] && echo "$SERVER_PID" > .server.pid || true
+# 启动 chatroom（PM2 管理，用 ecosystem.config.cjs 定义）
+echo "[bootstrap] 启动 chatroom 服务（PM2 管理，端口 3001）"
+if [ -f ecosystem.config.cjs ]; then
+  npx pm2 start ecosystem.config.cjs 2>&1 | tail -5
+else
+  # 兜底：直接用 pm2 start
+  NODE_ARGS="--max-old-space-size=768 --import tsx"
+  [ -f .env ] && NODE_ARGS="--env-file=.env $NODE_ARGS"
+  npx pm2 start api/server.ts --name chatroom --interpreter node --interpreter-args "$NODE_ARGS" 2>&1 | tail -5
 fi
-echo "[bootstrap] server PID=${SERVER_PID:-unknown}  launcher=$LAUNCHER_PID"
 
-# 等服务就绪（最多 40 秒）
+# 等服务就绪（最多 60 秒，PM2 + tsx 冷启动较慢）
 READY=0
-for i in $(seq 1 40); do
+for i in $(seq 1 60); do
   if curl -sf http://localhost:3001/api/health >/dev/null 2>&1; then
-    echo "[bootstrap] ✓ 服务就绪（用时 ${i}s）"
+    echo "[bootstrap] ✓ chatroom 就绪（用时 ${i}s）"
     READY=1
-    break
-  fi
-  # 检查进程是否还活着
-  if ! kill -0 $SERVER_PID 2>/dev/null; then
-    echo "[bootstrap] ✘ 服务进程已退出，日志："
-    tail -20 logs/server.log 2>/dev/null
     break
   fi
   sleep 1
 done
 if [ "$READY" = "0" ]; then
-  echo "[bootstrap] ✘ 服务未就绪，最后日志："
-  tail -30 logs/server.log 2>/dev/null
+  echo "[bootstrap] ✘ chatroom 未就绪，最近日志："
+  npx pm2 logs chatroom --lines 20 --nostream 2>&1 | tail -25
 fi
+
+# 保存 PM2 进程列表（下次 Codespace 启动时 PM2 resurrection 会自动恢复）
+npx pm2 save 2>&1 | tail -2
 
 # ============ 6) 写入公开 URL 到本地文件（不 push，由外部读取或 GitHub API 查） ============
 PUBLIC_URL=""
