@@ -1,0 +1,367 @@
+import initSqlJs from 'sql.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const dbPath = path.join(__dirname, '..', 'data', 'chat.db');
+
+const dataDir = path.dirname(dbPath);
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+let SQL: any;
+let _db: any;
+
+function loadDb(): any {
+  if (_db) return _db;
+  const fileBuffer = fs.existsSync(dbPath) ? fs.readFileSync(dbPath) : undefined;
+  _db = new SQL.Database(fileBuffer);
+  return _db;
+}
+
+let saveTimer: any = null;
+let dirty = false;
+function markDirty() {
+  dirty = true;
+  if (!saveTimer) {
+    saveTimer = setTimeout(() => {
+      if (dirty && _db) {
+        try {
+          const data = _db.export();
+          const tmp = dbPath + '.tmp';
+          fs.writeFileSync(tmp, Buffer.from(data));
+          fs.renameSync(tmp, dbPath);
+          dirty = false;
+        } catch (e: any) {
+          console.error('[DB] save error:', e);
+        }
+      }
+      saveTimer = null;
+    }, 1500);
+  }
+}
+function forceSave() {
+  if (_db && dirty) {
+    try {
+      const data = _db.export();
+      const tmp = dbPath + '.tmp';
+      fs.writeFileSync(tmp, Buffer.from(data));
+      fs.renameSync(tmp, dbPath);
+      dirty = false;
+    } catch {}
+  }
+}
+process.on('exit', forceSave);
+process.on('SIGTERM', () => { forceSave(); process.exit(0); });
+process.on('SIGINT', () => { forceSave(); process.exit(0); });
+
+class Statement {
+  private _sql: string;
+  constructor(sql: string) { this._sql = sql; }
+  run(...args: any[]): { changes: number; lastInsertRowid: any } {
+    const d = loadDb();
+    d.run(this._sql, args);
+    markDirty();
+    const changes = (typeof d.getRowsModified === 'function') ? d.getRowsModified() : 0;
+    let lid = 0;
+    try {
+      const r = d.exec('SELECT last_insert_rowid() AS id');
+      if (r && r[0] && r[0].values && r[0].values[0]) lid = r[0].values[0][0];
+    } catch {}
+    return { changes, lastInsertRowid: lid };
+  }
+  get(...args: any[]): any {
+    const d = loadDb();
+    try {
+      const s = d.prepare(this._sql);
+      s.bind(args);
+      if (s.step()) {
+        const row = s.getAsObject();
+        s.free();
+        return row;
+      }
+      s.free();
+    } catch {}
+    return undefined;
+  }
+  all(...args: any[]): any[] {
+    const d = loadDb();
+    const rows: any[] = [];
+    try {
+      const s = d.prepare(this._sql);
+      s.bind(args);
+      while (s.step()) rows.push(s.getAsObject());
+      s.free();
+    } catch {}
+    return rows;
+  }
+  pluck(): this {
+    const origGet = this.get.bind(this);
+    const origAll = this.all.bind(this);
+    this.get = (...a: any[]) => {
+      const r = origGet(...a);
+      if (r == null) return r;
+      const k = Object.keys(r as any);
+      return (r as any)[k[0]];
+    };
+    this.all = (...a: any[]) => origAll(...a).map((r: any) => {
+      const k = Object.keys(r);
+      return r[k[0]];
+    });
+    return this;
+  }
+}
+
+class DatabaseCompat {
+  exec(sql: string): void { loadDb().exec(sql); markDirty(); }
+  pragma(sql: string): any {
+    try {
+      const lower = sql.trim().toLowerCase();
+      if (lower.startsWith('journal_mode') || lower.startsWith('synchronous')
+        || lower.startsWith('cache_size') || lower.startsWith('mmap_size')
+        || lower.startsWith('temp_store') || lower.startsWith('busy_timeout')
+        || lower.startsWith('wal_autocheckpoint') || lower.startsWith('journal_size_limit')
+        || lower.startsWith('optimize') || lower.startsWith('case_sensitive_like')) {
+        return [];
+      }
+      const key = lower.split('=')[0].trim();
+      return loadDb().exec('PRAGMA ' + key);
+    } catch { return []; }
+  }
+  prepare(sql: string): Statement { return new Statement(sql); }
+  transaction(fn: any): any {
+    return function(...args: any[]) {
+      loadDb().exec("BEGIN");
+      try {
+        const res = fn.apply(null, args);
+        loadDb().exec("COMMIT");
+        markDirty();
+        return res;
+      } catch (e) {
+        try { loadDb().exec("ROLLBACK"); } catch {}
+        throw e;
+      }
+    };
+  }
+      try { forceSave(); if (fs.existsSync(dbPath)) fs.copyFileSync(dbPath, dest); resolve(); }
+      catch (e) { reject(e); }
+    });
+  }
+}
+
+await (async () => { SQL = await initSqlJs(); loadDb(); })();
+const db: any = new DatabaseCompat();
+
+db.exec(`CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL,
+  phone TEXT DEFAULT '',
+  email TEXT DEFAULT '',
+  avatar TEXT DEFAULT '',
+  active INTEGER DEFAULT 1,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  senderId INTEGER NOT NULL,
+  receiverId INTEGER NOT NULL,
+  content TEXT DEFAULT '',
+  type TEXT DEFAULT 'text',
+  fileUrl TEXT DEFAULT '',
+  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS friendships (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER NOT NULL,
+  friendId INTEGER NOT NULL,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(userId, friendId)
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS verification_codes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target TEXT NOT NULL,
+  code TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'register',
+  expiresAt DATETIME NOT NULL,
+  used INTEGER DEFAULT 0,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS posts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER NOT NULL,
+  content TEXT DEFAULT '',
+  imageUrl TEXT DEFAULT '',
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  postId INTEGER NOT NULL,
+  userId INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  parentId INTEGER DEFAULT NULL,
+  replyToUserId INTEGER DEFAULT NULL,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER NOT NULL,
+  type TEXT NOT NULL DEFAULT 'comment',
+  postId INTEGER NOT NULL,
+  commentId INTEGER DEFAULT NULL,
+  fromUserId INTEGER NOT NULL,
+  content TEXT DEFAULT '',
+  isRead INTEGER DEFAULT 0,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS friend_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  senderId INTEGER NOT NULL,
+  receiverId INTEGER NOT NULL,
+  status TEXT DEFAULT 'pending',
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(senderId, receiverId)
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS groups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  avatar TEXT DEFAULT '',
+  ownerId INTEGER NOT NULL,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS group_members (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  groupId INTEGER NOT NULL,
+  userId INTEGER NOT NULL,
+  role TEXT DEFAULT 'member',
+  joinedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(groupId, userId)
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS group_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  groupId INTEGER NOT NULL,
+  senderId INTEGER NOT NULL,
+  content TEXT DEFAULT '',
+  type TEXT DEFAULT 'text',
+  fileUrl TEXT DEFAULT '',
+  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS unread_counts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER NOT NULL,
+  targetType TEXT NOT NULL,
+  targetId INTEGER NOT NULL,
+  count INTEGER DEFAULT 0,
+  lastMessage TEXT DEFAULT '',
+  lastSenderId INTEGER DEFAULT 0,
+  lastTimestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(userId, targetType, targetId)
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS group_invitations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  groupId INTEGER NOT NULL,
+  inviterId INTEGER NOT NULL,
+  inviteeId INTEGER NOT NULL,
+  status TEXT DEFAULT 'pending',
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(groupId, inviteeId, status)
+);`);
+db.exec(`CREATE TABLE IF NOT EXISTS vip_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  userId INTEGER NOT NULL,
+  planId TEXT NOT NULL,
+  amount REAL NOT NULL,
+  outTradeNo TEXT UNIQUE NOT NULL,
+  status TEXT DEFAULT 'pending',
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);`);
+
+const INDEX_SQLS = [
+  `CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(senderId)`,
+  `CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiverId)`,
+  `CREATE INDEX IF NOT EXISTS idx_messages_pair_ts ON messages(senderId, receiverId, timestamp DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_friendships_user ON friendships(userId)`,
+  `CREATE INDEX IF NOT EXISTS idx_friendships_friend ON friendships(friendId)`,
+  `CREATE INDEX IF NOT EXISTS idx_verification_target_type ON verification_codes(target, type)`,
+  `CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(createdAt DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_posts_user ON posts(userId)`,
+  `CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(postId)`,
+  `CREATE INDEX IF NOT EXISTS idx_comments_post_created ON comments(postId, createdAt ASC)`,
+  `CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parentId)`,
+  `CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(userId, isRead)`,
+  `CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(userId, createdAt DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(groupId)`,
+  `CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(userId)`,
+  `CREATE INDEX IF NOT EXISTS idx_group_messages_group_ts ON group_messages(groupId, timestamp DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_unread_user ON unread_counts(userId)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_unread_user_target ON unread_counts(userId, targetType, targetId)`,
+  `CREATE INDEX IF NOT EXISTS idx_group_invitations_invitee ON group_invitations(inviteeId, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(timestamp)`,
+  `CREATE INDEX IF NOT EXISTS idx_group_messages_ts ON group_messages(timestamp)`,
+];
+for (const sql of INDEX_SQLS) { try { db.exec(sql); } catch {} }
+
+const ALTER_SQLS = [
+  `ALTER TABLE users ADD COLUMN deactivatedAt DATETIME DEFAULT NULL`,
+  `ALTER TABLE users ADD COLUMN vip INTEGER DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN vipExpiresAt DATETIME DEFAULT NULL`,
+  `ALTER TABLE users ADD COLUMN wechatQrcode TEXT DEFAULT ''`,
+  `ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''`,
+  `ALTER TABLE users ADD COLUMN gender TEXT DEFAULT ''`,
+  `ALTER TABLE users ADD COLUMN region TEXT DEFAULT ''`,
+  `ALTER TABLE users ADD COLUMN faceDescriptor TEXT DEFAULT ''`,
+  `ALTER TABLE users ADD COLUMN isOfficial INTEGER DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN age INTEGER DEFAULT 0`,
+  `ALTER TABLE comments ADD COLUMN parentId INTEGER DEFAULT NULL`,
+  `ALTER TABLE comments ADD COLUMN replyToUserId INTEGER DEFAULT NULL`,
+];
+for (const sql of ALTER_SQLS) { try { db.exec(sql); } catch {} }
+
+try { db.exec(`UPDATE users SET active = 1 WHERE active IS NULL`); } catch {}
+
+(async () => {
+  try {
+    const officialExists = db.prepare('SELECT id FROM users WHERE isOfficial = 1').get();
+    if (!officialExists) {
+      let existing = db.prepare('SELECT id FROM users WHERE username = ?').get('ChatRoom');
+      if (!existing) existing = db.prepare('SELECT id FROM users WHERE username = ?').get('chatroom');
+      if (existing) {
+        db.prepare('UPDATE users SET isOfficial = 1 WHERE id = ?').run(existing.id);
+      } else {
+        const bcryptMod = await import('bcryptjs');
+        const bcrypt = (bcryptMod as any).default || bcryptMod;
+        const hashed = bcrypt.hashSync('chatroom2026', 8);
+        db.prepare('INSERT INTO users (username, password, email, bio, isOfficial, avatar) VALUES (?, ?, ?, ?, 1, ?)')
+          .run('ChatRoom', hashed, 'official@chatroom.app', 'ChatRoom官方账号，欢迎关注！', '');
+      }
+      markDirty();
+    }
+  } catch (e: any) { console.error('[DB] init official:', e); }
+})();
+
+class StmtCache {
+  private map = new Map<string, any>();
+  private max = 64;
+  get(sql: string): any {
+    let s = this.map.get(sql);
+    if (!s) {
+      if (this.map.size >= this.max) {
+        const keys = this.map.keys();
+        for (let i = 0; i < this.max / 4; i++) {
+          const k = keys.next();
+          if (k.done) break;
+          this.map.delete(k.value as string);
+        }
+      }
+      s = db.prepare(sql);
+      this.map.set(sql, s);
+    }
+    return s;
+  }
+}
+export const stmtCache = new StmtCache();
+export default db;

@@ -1,0 +1,14 @@
+# Netlify 配置：纯静态版本（唤醒逻辑全部在 public/index.html 前端 JS 里完成）
+# 优点：ZIP 直接上传就能生效，不依赖 Edge Functions
+[build]
+  publish = "netlify-public"
+  command = "echo 'pure static — no build needed'"
+
+# clean URLs：访问 /wake 自动找 wake.html
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    Cache-Control = "no-store,no-cache,must-revalidate"

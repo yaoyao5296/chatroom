@@ -1,0 +1,6 @@
+{
+  "name": "chatroom-vercel-wake",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vercel Edge Function 作为 Codespace 唤醒入口"
+}

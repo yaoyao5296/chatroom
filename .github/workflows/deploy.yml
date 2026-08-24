@@ -1,0 +1,153 @@
+name: Deploy to Render
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        run: |
+          pip install playwright
+          python -m playwright install chromium
+          python -m playwright install-deps chromium
+
+      - name: Deploy to Render
+        env:
+          RENDER_EMAIL: 13574196538@163.com
+          RENDER_PASSWORD: zjp120310
+        run: |
+          python << 'PYEOF'
+          import asyncio, os
+          from playwright.async_api import async_playwright
+
+          async def main():
+              async with async_playwright() as pw:
+                  browser = await pw.chromium.launch(headless=True)
+                  ctx = await browser.new_context(viewport={'width': 1440, 'height': 900})
+                  page = await ctx.new_page()
+
+                  await page.add_init_script('''() => {
+                      Object.defineProperty(navigator, 'webdriver', {get: () => false});
+                      window.chrome = {runtime: {}};
+                  }''')
+
+                  print("Step 1: Try Render direct email login...")
+                  await page.goto('https://dashboard.render.com/login', timeout=30000, wait_until='networkidle')
+                  await page.wait_for_timeout(3000)
+                  
+                  await page.screenshot(path='/tmp/render_login.png')
+                  
+                  # Check for email input on the login page
+                  email_input = page.locator('input[type="email"], input[name="email"], input[placeholder*="email" i]')
+                  has_email = await email_input.count() > 0
+                  print(f"Has email input: {has_email}")
+                  
+                  if has_email:
+                      print("Direct email login found!")
+                      await email_input.fill(os.environ['RENDER_EMAIL'])
+                      await page.wait_for_timeout(1000)
+                      
+                      pwd_input = page.locator('input[type="password"]')
+                      if await pwd_input.count() > 0:
+                          await pwd_input.fill(os.environ['RENDER_PASSWORD'])
+                          await page.wait_for_timeout(500)
+                      
+                      submit_btn = page.locator('button[type="submit"], input[type="submit"]')
+                      if await submit_btn.count() > 0:
+                          await submit_btn.first.click()
+                          await page.wait_for_timeout(5000)
+                          print(f"After login: {page.url[:80]}")
+                  else:
+                      print("No direct email login, checking page structure...")
+                      await page.screenshot(path='/tmp/render_no_email.png')
+                  
+                  print("\nStep 4: Wait for result...")
+                  for i in range(30):
+                      await page.wait_for_timeout(3000)
+                      url = page.url
+                      print(f"  [{i}] {url[:120]}")
+
+                      if 'dashboard.render.com' in url and 'login' not in url:
+                          print("*** ON RENDER DASHBOARD! ***")
+                          break
+
+                      if 'authorize' in url:
+                          try:
+                              auth_btn = page.locator('button:has-text("Authorize"), button[name="authorize"]')
+                              if await auth_btn.count() > 0:
+                                  await auth_btn.first.click()
+                                  print("Clicked authorize")
+                                  await page.wait_for_timeout(5000)
+                                  continue
+                          except:
+                              pass
+
+                      if 'login' in url or 'session' in url:
+                          text = await page.evaluate('() => document.body.innerText')
+                          if 'incorrect' in text.lower() or 'Invalid' in text:
+                              print(f"LOGIN ERROR: {text[:200]}")
+                              break
+                          
+                          # Try to fill login form
+                          try:
+                              login_field = page.locator('input[name="login"]')
+                              if await login_field.count() > 0:
+                                  await login_field.fill(os.environ['RENDER_EMAIL'])
+                                  await page.wait_for_timeout(1000)
+                                  await page.click('input[type="submit"]')
+                                  await page.wait_for_timeout(3000)
+
+                                  pwd_field = page.locator('input[name="password"]')
+                                  if await pwd_field.count() > 0:
+                                      await pwd_field.fill(os.environ['RENDER_PASSWORD'])
+                                      await page.wait_for_timeout(500)
+                                      await page.click('input[type="submit"]')
+                                      await page.wait_for_timeout(5000)
+                          except Exception as e:
+                              print(f"Fill error: {e}")
+
+                  print(f"Final URL: {page.url}")
+                  await page.screenshot(path='/tmp/render_final.png')
+
+                  if 'dashboard.render.com' in page.url and 'login' not in page.url:
+                      print("\nStep 5: On Dashboard - creating Blueprint...")
+                      await page.goto('https://dashboard.render.com/blueprints/new', timeout=30000, wait_until='networkidle')
+                      await page.wait_for_timeout(5000)
+                      await page.screenshot(path='/tmp/render_blueprint.png')
+
+                      blueprint_text = await page.evaluate('() => document.body.innerText')
+                      print(f"Blueprint page: {blueprint_text[:300]}")
+                      
+                      # Try to find and click connect repo buttons
+                      btns = await page.evaluate('''() => {
+                          return [...document.querySelectorAll('a, button')].map(b => ({
+                              text: (b.textContent || '').trim().slice(0, 100),
+                              href: (b.href || '').slice(0, 120)
+                          })).filter(b => b.text)
+                      }''')
+                      for b in btns:
+                          txt = b['text'].lower()
+                          if 'connect' in txt or 'github' in txt or 'new blue' in txt:
+                              print(f"Found: {b['text']}")
+
+                      await page.screenshot(path='/tmp/render_blueprint_final.png')
+                  else:
+                      print("Failed to reach Render dashboard")
+
+                  await browser.close()
+
+          asyncio.run(main())
+          PYEOF
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-screenshots
+          path: /tmp/render_*.png

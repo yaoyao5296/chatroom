@@ -1,0 +1,35 @@
+name: Debug Server
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Debug via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 8.163.56.203
+          username: root
+          password: ${{ secrets.SERVER_PASSWORD }}
+          command_timeout: 3m
+          script: |
+            cd /opt/chatroom
+            echo "=== 检查 node_modules ==="
+            ls node_modules/.package-lock.json 2>/dev/null && echo "node_modules 存在" || echo "node_modules 缺失!"
+            ls node_modules/express 2>/dev/null && echo "express 存在" || echo "express 缺失!"
+            ls node_modules/better-sqlite3 2>/dev/null && echo "better-sqlite3 存在" || echo "better-sqlite3 缺失!"
+            ls node_modules/ioredis 2>/dev/null && echo "ioredis 存在" || echo "ioredis 缺失!"
+            
+            echo "=== 尝试手动启动看错误 ==="
+            cd /opt/chatroom
+            timeout 15 node --import tsx api/server.ts 2>&1 || true
+            
+            echo "=== PM2 Error Log ==="
+            cat logs/pm2-error.log 2>/dev/null | tail -50 || echo "无错误日志"
+            
+            echo "=== PM2 Out Log ==="
+            cat logs/pm2-out.log 2>/dev/null | tail -50 || echo "无输出日志"

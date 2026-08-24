@@ -1,0 +1,5 @@
+首次发布 (1.0)：
+- ChatRoom Android 版首次提交 F-Droid
+- 核心功能：公共聊天室、私聊、动态、文件/图片上传
+- 同时支持 IPv4 与 IPv6 网络
+- 基于 React+Vite Web 前端，通过 Capacitor 构建
