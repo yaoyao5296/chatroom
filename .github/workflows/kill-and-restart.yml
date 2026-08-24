@@ -1,0 +1,47 @@
+name: Kill and Restart
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  restart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kill and restart via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 8.163.56.203
+          username: root
+          password: ${{ secrets.SERVER_PASSWORD }}
+          command_timeout: 3m
+          script: |
+            # 精确杀僵尸进程
+            ZOMBIE=$(ps aux | grep "[t]sx api/server" | awk '{print $2}')
+            if [ -n "$ZOMBIE" ]; then
+              echo "杀掉僵尸进程: $ZOMBIE"
+              kill -9 $ZOMBIE 2>/dev/null || true
+            fi
+            fuser -k 3001/tcp 2>/dev/null || true
+            pm2 delete chatroom 2>/dev/null || true
+            sleep 5
+            
+            # 确认端口已释放
+            echo "=== 端口检查 ==="
+            ss -tlnp | grep 3001 || echo "端口 3001 已释放"
+            
+            cd /opt/chatroom
+            git remote set-url origin https://github.com/yaoyao5296/chatroom.git
+            git fetch origin
+            git reset --hard origin/master
+            
+            pm2 start ecosystem.config.cjs
+            sleep 15
+            
+            echo "=== PM2 Status ==="
+            pm2 list
+            echo "=== Health Check ==="
+            curl -s -o /dev/null -w "HTTP: %{http_code}\n" http://localhost:3001/api/health
+            echo "=== PM2 Logs ==="
+            pm2 logs chatroom --lines 20 --nostream 2>&1 || true

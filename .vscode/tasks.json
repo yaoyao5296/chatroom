@@ -1,0 +1,49 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "install",
+      "type": "shell",
+      "command": "npm install",
+      "options": { "cwd": "/workspace" },
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": false }
+    },
+    {
+      "label": "start-backend",
+      "type": "shell",
+      "command": "node --import tsx api/server.ts",
+      "options": { "cwd": "/workspace" },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": { "regexp": "^.*$" },
+        "data": { "server": "backend" }
+      },
+      "group": "none"
+    },
+    {
+      "label": "start-frontend",
+      "type": "shell",
+      "command": "node_modules/.bin/vite --port 5173",
+      "options": { "cwd": "/workspace" },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": { "regexp": "^.*$" },
+        "data": { "server": "frontend" }
+      },
+      "group": "none",
+      "dependsOn": ["start-backend"]
+    },
+    {
+      "label": "dev: 启动全部服务",
+      "type": "shell",
+      "command": "bash setup.sh",
+      "options": { "cwd": "/workspace" },
+      "isBackground": true,
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
+    }
+  ]
+}

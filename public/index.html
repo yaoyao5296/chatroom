@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>服务启动中 · ChatRoom</title>
+<style>
+:root{--fg:#E2E8F0;--muted:#94A3B8;--card:#12121a;--accent:#38BDF8;--accent2:#818CF8;--warn:#FBBF24;--ok:#4ADE80;--bg0:#06060a;--bg1:#0e0e18;--bg2:#111126}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:linear-gradient(160deg,var(--bg0) 0%,var(--bg1) 60%,var(--bg2) 100%);color:var(--fg)}
+body{display:flex;align-items:center;justify-content:center;padding:24px}
+.card{width:100%;max-width:460px;background:rgba(18,18,26,.85);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:36px 28px;box-shadow:0 40px 100px rgba(0,0,0,.5)}
+.spin{width:64px;height:64px;border:5px solid rgba(56,189,248,.15);border-top-color:var(--accent);border-radius:50%;animation:r .9s linear infinite;margin:0 auto 26px}
+@keyframes r{to{transform:rotate(360deg)}}
+.check{width:64px;height:64px;background:linear-gradient(135deg,var(--ok),#22D3EE);border-radius:50%;margin:0 auto 26px;display:flex;align-items:center;justify-content:center;color:#062e1a;font-size:34px;font-weight:800;animation:pop .35s ease-out}
+@keyframes pop{0%{transform:scale(.5);opacity:0}100%{transform:scale(1);opacity:1}}
+.t{font-size:30px;font-weight:700;text-align:center;margin:0 0 6px;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:1px}
+.sub{color:var(--muted);font-size:15px;line-height:1.8;text-align:center;margin:0}
+.cd{margin:22px auto 0;display:flex;align-items:baseline;justify-content:center;gap:8px}
+.cd .num{font-size:56px;font-weight:800;line-height:1;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-family:ui-monospace,Menlo,Consolas,monospace;min-width:2ch;text-align:center}
+.cd .unit{font-size:18px;color:var(--muted);font-weight:500}
+.eta{text-align:center;margin-top:10px;font-size:13px;color:var(--muted)}
+.pill{display:inline-block;padding:7px 14px;border-radius:999px;background:rgba(56,189,248,.1);color:var(--accent);font-size:13px;margin-top:18px;font-weight:500}
+.pill.ok{background:rgba(74,222,128,.12);color:var(--ok)}
+.pill.queued{background:rgba(251,191,36,.12);color:var(--warn)}
+.meta{margin-top:24px;padding:16px 18px;border-radius:14px;background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.18);color:var(--warn);font-size:13px;line-height:1.8}
+.meta a{color:var(--warn);font-weight:600;text-decoration:underline;word-break:break-all}
+.btns{display:flex;flex-direction:column;gap:10px;margin-top:20px}
+.btn{display:block;text-align:center;padding:14px 16px;border-radius:14px;font-size:15px;font-weight:600;text-decoration:none;transition:transform .15s ease}
+.btn:active{transform:scale(.98)}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#0b1220;box-shadow:0 8px 24px rgba(56,189,248,.25)}
+.btn-ghost{background:rgba(255,255,255,.05);color:var(--fg);border:1px solid rgba(255,255,255,.1)}
+.btn[style*="display:none"]{display:none}
+.bar{height:8px;border-radius:999px;background:rgba(255,255,255,.05);overflow:hidden;margin-top:22px}
+.bar>div{height:100%;width:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));transform-origin:left;transition:transform 1s linear}
+.info{margin-top:22px;font-size:12px;color:var(--muted);text-align:center;line-height:1.9}
+.kbd{font-family:ui-monospace,monospace;font-size:11px;padding:2px 7px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);margin:0 2px}
+.log{margin-top:18px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);max-height:160px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.7;color:var(--muted)}
+.log>div{padding:2px 0;border-bottom:1px dashed rgba(255,255,255,.04)}
+.log>div:last-child{border-bottom:0;color:#CBD5E1}
+.hidden{display:none!important}
+</style></head><body><div class="card">
+<div id="icon" class="spin"></div>
+<h1 class="t" id="title">🚀 服务启动中</h1>
+<p class="sub" id="tip">正在查询 Codespace 状态…</p>
+
+<div class="cd" id="cdBox">
+  <span class="num" id="secNum">90</span>
+  <span class="unit">秒</span>
+</div>
+<p class="eta" id="etaTip">预计还需等待 · 首次唤醒约 60–120 秒</p>
+
+<p style="text-align:center"><span class="pill" id="pill">当前状态：查询中…</span></p>
+
+<div class="bar" id="bar"><div id="barFill" style="transform:scaleX(1)"></div></div>
+
+<div class="meta">🔥 不想等？阿里云 24h 在线稳定入口，点下面按钮直接返回首页使用：
+<div style="margin-top:10px"><a href="http://8.163.56.203/" target="_blank" rel="noopener">http://8.163.56.203/</a></div></div>
+
+<div class="btns">
+<a id="jumpBtn" class="btn btn-primary" href="http://bore.pub:31425" style="display:none">✅ 立即进入 ChatRoom（Bore 节点）→</a>
+<a class="btn btn-ghost" href="http://8.163.56.203/">💡 改用阿里云稳定版</a>
+</div>
+
+<div class="log" id="log"></div>
+
+<div class="info">页面每 <span class="kbd">3</span> 秒自动查询一次状态，Codespace 启动完成后会自动跳转。<br>
+倒计时结束仍未就绪时，页面会自动续时继续等待。</div>
+</div>
+
+<script>
+(function(){
+  // ============ 配置（如需改直接改这里）============
+  //   安全：GH_PAT 不再硬编码到源代码中。
+  //   用户首次访问页面会弹输入框，粘贴自己的 GitHub PAT 后保存到浏览器 localStorage。
+  //   存储键："CHATROOM_GH_PAT"；也可通过 URL ?gh_pat=xxx 临时传入（仅一次）。
+  var CODESPACE_NAME  = 'chatroom-qvqrr4p54q7jh46r6';
+  var BORE_URL        = 'http://bore.pub:31425';
+  var ALIYUN_URL      = 'http://8.163.56.203/';
+  var LS_KEY          = 'CHATROOM_GH_PAT';
+
+  // 读取 GH_PAT：URL 参数优先 > localStorage > prompt 输入
+  var GH_PAT = (function getPAT(){
+    var usp = new URLSearchParams(window.location.search || '');
+    var fromUrl = usp.get('gh_pat') || usp.get('token');
+    if (fromUrl) { try { localStorage.setItem(LS_KEY, fromUrl); } catch(e){} return fromUrl; }
+    try { var v = localStorage.getItem(LS_KEY); if (v) return v; } catch(e){}
+    var p = window.prompt(
+      '请粘贴你的 GitHub PAT（至少含 codespace 权限）\n' +
+      '令牌会保存在你本机浏览器 localStorage 中，不会上传到任何服务器。\n' +
+      '忘记可前往 https://github.com/settings/tokens 创建。'
+    );
+    if (!p) return '';
+    try { localStorage.setItem(LS_KEY, p.trim()); } catch(e){}
+    return p.trim();
+  })();
+
+  // 如果仍然没有 PAT，直接提示并提供阿里云备用按钮
+  if (!GH_PAT) {
+    document.addEventListener('DOMContentLoaded', function(){
+      $('tip').textContent = '⚠️ 未填写 GitHub PAT，无法自动唤醒 Codespace。';
+      $('title').textContent = '🔐 请先设置 GitHub PAT';
+      $('secNum').textContent = '0';
+      $('etaTip').textContent = '可直接点下方阿里云备用入口，或刷新页面重新填入 PAT。';
+      $('pill').textContent = '等待授权';
+      var reset = document.createElement('a');
+      reset.className = 'btn btn-primary';
+      reset.href = '#' ; reset.textContent = '🔑 重新填入 PAT';
+      reset.addEventListener('click', function(e){
+        e.preventDefault();
+        try { localStorage.removeItem(LS_KEY); } catch(e){}
+        location.reload();
+      });
+      $('btns').appendChild(reset);
+    });
+    return;
+  }
+
+  var STATE_TEXT = {
+    Available:    '✅ 服务就绪，正在跳转…',
+    Queued:       '⏳ 资源排队中…',
+    Provisioning: '🔧 机器分配中…',
+    Starting:     '🚀 Codespace 启动中…',
+    Rebuilding:   '🔄 正在重建环境…',
+    Stopping:     '🛑 上一次还在关闭中…',
+    Stopped:      '💤 Codespace 刚刚被唤醒，请稍候…',
+    Unknown:      '🔎 正在查询状态…',
+  };
+
+  var GH_HEADERS = {
+    'Authorization':        'Bearer ' + GH_PAT,
+    'Accept':               'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent':           'chatroom-wake-netlify-static/1.0',
+  };
+  var GH_BASE = 'https://api.github.com/user/codespaces/' + encodeURIComponent(CODESPACE_NAME);
+
+  // ============ DOM ============
+  var $ = function(id){ return document.getElementById(id); };
+  var title   = $('title');
+  var tip     = $('tip');
+  var pill    = $('pill');
+  var icon    = $('icon');
+  var cdBox   = $('cdBox');
+  var secNum  = $('secNum');
+  var etaTip  = $('etaTip');
+  var bar     = $('bar');
+  var barFill = $('barFill');
+  var jumpBtn = $('jumpBtn');
+  var logBox  = $('log');
+
+  function log(msg){
+    var d = document.createElement('div');
+    var t = new Date();
+    var ts = String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+':'+String(t.getSeconds()).padStart(2,'0');
+    d.textContent = '['+ts+'] '+msg;
+    logBox.appendChild(d);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  // ============ 倒计时 ============
+  var INIT_SEC = 90;
+  var remain = INIT_SEC;
+  var cdTimer;
+  function tickCD(){
+    remain = Math.max(0, remain-1);
+    secNum.textContent = remain;
+    var p = INIT_SEC>0 ? Math.max(0, Math.min(1, remain/INIT_SEC)) : 0;
+    barFill.style.transform = 'scaleX('+p+')';
+    if (remain <= 0){
+      // 续时 45s
+      remain = 45;
+      INIT_SEC = remain;
+      etaTip.textContent = '还需要再等一下 · 资源调度中';
+      log('倒计时结束，续 45 秒继续等待');
+    }
+  }
+  cdTimer = setInterval(tickCD, 1000);
+
+  // ============ GitHub API 调用 ============
+  var started = false;
+  var going = false;
+
+  function goNow(){
+    if (going) return;
+    going = true;
+    clearInterval(pollTimer);
+    clearInterval(cdTimer);
+    log('🚀 跳转到 ' + BORE_URL);
+    setTimeout(function(){ location.replace(BORE_URL); }, 150);
+  }
+
+  async function getState(){
+    try{
+      var r = await fetch(GH_BASE, { headers: GH_HEADERS, cache: 'no-store' });
+      if (!r.ok) return 'Unknown';
+      var j = await r.json();
+      return j.state || 'Unknown';
+    }catch(e){
+      log('⚠️ 查询失败: '+e.message);
+      return 'Unknown';
+    }
+  }
+  async function startCS(){
+    try{
+      await fetch(GH_BASE + '/start', { method: 'POST', headers: GH_HEADERS });
+    }catch(e){
+      log('⚠️ 启动请求失败: '+e.message);
+    }
+  }
+
+  function render(s){
+    var tipText = STATE_TEXT[s] || ('⏳ 状态：'+s);
+    tip.textContent = tipText;
+    pill.textContent = '当前状态：'+s;
+    pill.className = 'pill' + (s==='Available'?' ok':(s==='Queued'||s==='Provisioning'?' queued':''));
+    log('state = ' + s + ' → ' + tipText);
+
+    if (s === 'Queued' || s === 'Provisioning') etaTip.textContent = '正在分配机器 · 请耐心等待';
+    else if (s === 'Starting') etaTip.textContent = 'Codespace 启动中 · 马上就好';
+    else if (s === 'Stopping') etaTip.textContent = '上一次会话还在关闭 · 请稍候再启动';
+
+    if (s === 'Available'){
+      // 就绪
+      icon.className = 'check'; icon.textContent = '✓';
+      title.textContent = '✅ 服务已就绪';
+      bar.classList.add('hidden');
+      etaTip.classList.add('hidden');
+      jumpBtn.style.display = '';
+      // 就绪后倒计时 3 秒自动跳
+      clearInterval(cdTimer);
+      remain = 3;
+      secNum.textContent = '3';
+      cdBox.classList.remove('hidden');
+      cdTimer = setInterval(function(){
+        remain--;
+        secNum.textContent = remain;
+        if (remain <= 0) goNow();
+      }, 1000);
+      setTimeout(goNow, 3800);
+    }
+  }
+
+  async function poll(){
+    if (going) return;
+    var s = await getState();
+    render(s);
+    if (s === 'Available') return;
+    if (!started){
+      started = true;
+      log('📡 触发 Codespace 启动…');
+      startCS();
+    }
+  }
+
+  // 启动
+  log('页面已加载，开始查询 Codespace 状态…');
+  log('Codespace: ' + CODESPACE_NAME);
+  poll();
+  var pollTimer = setInterval(poll, 3000);
+  setTimeout(function(){ if(!going){clearInterval(pollTimer); log('⏱ 已等待超过 4 分钟，停止轮询（手动刷新页面可重试）'); }}, 240000);
+})();
+</script></body></html>

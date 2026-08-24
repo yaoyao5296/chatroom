@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: chatroom
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node --max-old-space-size=192 --optimize-for-size --import tsx api/server.ts
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3001"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MAIL_HOST
+        value: smtp.163.com
+      - key: MAIL_PORT
+        value: "465"
+      - key: MAIL_USER
+        value: 13574196538@163.com
+      - key: MAIL_PASS
+        value: JAhc35z4i5r9FdAy
+      - key: MAIL_FROM
+        value: 13574196538@163.com
+    disk:
+      name: chatroom-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

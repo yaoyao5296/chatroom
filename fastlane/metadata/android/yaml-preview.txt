@@ -1,0 +1,43 @@
+# 在 F-Droid 官方仓库里，metadata 是 YAML，位置：metadata/com.chatroom.app.yml
+# 这是提交时可参考的模板：
+#
+# Categories:
+#   - Internet
+#   - Connectivity
+# License: MIT
+# WebSite: https://github.com/yaoyao5296/chatroom
+# SourceCode: https://github.com/yaoyao5296/chatroom
+# IssueTracker: https://github.com/yaoyao5296/chatroom/issues
+# Summary:
+#   en-US: A lightweight real-time chat web app.
+#   zh-CN: 一个轻量级实时聊天软件
+# Description: |-
+#   en-US: ChatRoom is a lightweight, real-time chat web application packaged as an
+#          Android app.  It supports live messaging, public chat rooms, and works over
+#          both IPv4 and IPv6.
+#   zh-CN: 聊天室 ChatRoom 是一个轻量级的实时聊天 Web 应用，封装为 Android App。
+#          支持公网多人实时聊天，IPv4/IPv6 双栈均可访问。
+#
+# RepoType: git
+# Repo: https://github.com/yaoyao5296/chatroom
+#
+# Builds:
+#   - versionName: 1.0
+#     versionCode: 1
+#     commit: v1.0.0
+#     subdir: android
+#     sudo:
+#       - apt-get update
+#       - apt-get install -y npm
+#     init: |
+#         cd ..
+#         npm ci
+#         npm run build
+#         npx cap sync android
+#     gradle:
+#       - yes
+#
+# AutoUpdateMode: Version
+# UpdateCheckMode: Tags
+# CurrentVersion: 1.0
+# CurrentVersionCode: 1

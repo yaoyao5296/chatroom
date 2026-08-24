@@ -1,0 +1,17 @@
+ChatRoom（聊天室）是一个轻量级、可自托管的实时聊天应用，通过 Capacitor 打包为 Android 应用。前端基于 Vite + React，后端使用 Node.js + SQLite，前后端均可在 Termux 平板或 VPS 上部署。
+
+主要功能：
+• 实时消息收发（WebSocket），发送即达
+• 公共聊天室，多人群聊
+• 用户之间的私聊（私信）
+• 朋友圈/动态时间线，与好友分享内容
+• 好友管理、在线状态显示
+• 文件上传与图片分享
+• 同时支持 IPv4 和 IPv6 网络访问
+• 完全自托管后端：任何人都可以部署自己的 Node.js + SQLite 服务
+• 无强制第三方服务器、无 Google Play Services、无广告
+• MIT 协议开源，自由修改与分发
+
+Android 版本以 WebView 封装 ChatRoom 的 Web 前端，功能与浏览器端完全一致。用户可将应用指向任意自行部署的 ChatRoom 服务端。
+
+无闭源依赖、无广告 SDK、完全尊重用户隐私，是 F-Droid 生态中干净的轻量聊天方案。
