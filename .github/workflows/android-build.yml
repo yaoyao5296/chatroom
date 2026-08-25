@@ -41,10 +41,49 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: |
-            build-tools;34.0.0
-            build-tools;36.0.0
-            platforms;android-36
+          packages: 'build-tools;36.0.0 platforms;android-36'
+
+      - name: Configure npm mirror (China)
+        run: npm config set registry https://registry.npmmirror.com
+
+      - name: Configure Gradle mirror (China)
+        run: |
+          mkdir -p ~/.gradle
+          cat > ~/.gradle/init.gradle <<'EOF'
+          allprojects {
+            repositories {
+              def ALIYUN_REPOSITORY_URL = 'https://maven.aliyun.com/repository/public'
+              def ALIYUN_JCENTER_URL = 'https://maven.aliyun.com/repository/jcenter'
+              def ALIYUN_GOOGLE_URL = 'https://maven.aliyun.com/repository/google'
+              def ALIYUN_GRADLE_PLUGIN_URL = 'https://maven.aliyun.com/repository/gradle-plugin'
+              all { ArtifactRepository repo ->
+                if (repo instanceof MavenArtifactRepository) {
+                  def url = repo.url.toString()
+                  if (url.startsWith('https://repo1.maven.org/maven2') || url.startsWith('https://repo.maven.apache.org/maven2')) {
+                    project.logger.lifecycle "Aliyun mirror: ${url} -> ${ALIYUN_REPOSITORY_URL}"
+                    remove repo
+                  }
+                  if (url.startsWith('https://jcenter.bintray.com')) {
+                    project.logger.lifecycle "Aliyun mirror: ${url} -> ${ALIYUN_JCENTER_URL}"
+                    remove repo
+                  }
+                  if (url.startsWith('https://dl.google.com/dl/android/maven2') || url.startsWith('https://maven.google.com')) {
+                    project.logger.lifecycle "Aliyun mirror: ${url} -> ${ALIYUN_GOOGLE_URL}"
+                    remove repo
+                  }
+                  if (url.startsWith('https://plugins.gradle.org/m2')) {
+                    project.logger.lifecycle "Aliyun mirror: ${url} -> ${ALIYUN_GRADLE_PLUGIN_URL}"
+                    remove repo
+                  }
+                }
+              }
+              maven { url ALIYUN_REPOSITORY_URL }
+              maven { url ALIYUN_JCENTER_URL }
+              maven { url ALIYUN_GOOGLE_URL }
+              maven { url ALIYUN_GRADLE_PLUGIN_URL }
+            }
+          }
+          EOF
 
       - name: Install dependencies
         run: npm ci
@@ -64,15 +103,21 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
+      - name: Rename APK to ChatRoom.apk
+        run: |
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/debug/*.apk artifacts/ChatRoom.apk
+          ls -lh artifacts/
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chatroom-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: ChatRoom-apk
+          path: artifacts/ChatRoom.apk
           retention-days: 30
           if-no-files-found: error
 
       - name: Show APK info
         run: |
           echo "=== APK 构建完成 ==="
-          ls -lh android/app/build/outputs/apk/debug/*.apk
+          ls -lh artifacts/ChatRoom.apk
