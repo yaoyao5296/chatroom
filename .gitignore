@@ -32,6 +32,8 @@ dist-ssr
 
 # Environment variables (contains email/SMS credentials)
 .env
+# 例外：APK 构建用的环境变量（仅含公开的服务器地址，需提交给 GitHub Actions）
+!.env.apk
 *.keystore
 
 # Database

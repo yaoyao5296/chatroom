@@ -1,0 +1,69 @@
+name: Android APK Build
+
+on:
+  # 手动触发
+  workflow_dispatch:
+  # 推送到主分支或修改 APK 相关文件时自动触发
+  push:
+    branches: [main, master, trae-clean2]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'android/**'
+      - '.env.apk'
+      - 'package.json'
+      - 'capacitor.config.ts'
+      - 'vite.config.ts'
+      - '.github/workflows/android-build.yml'
+
+jobs:
+  build:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets (APK mode)
+        run: npm run build:apk
+        env:
+          # 兜底：即使 .env.apk 缺失也注入
+          VITE_API_BASE: http://bore.pub:31425/api
+          VITE_CODESPACE_NAME: chatroom-qvqrr4p54q7jh46r6
+          VITE_WAKE_URL: https://chatroom31425.netlify.app/
+
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatroom-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Show APK info
+        run: |
+          echo "=== APK 构建完成 ==="
+          ls -lh android/app/build/outputs/apk/debug/*.apk
