@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Netlify 部署：通过 ZIP 一次性上传（最简单稳定）"""
-import json, subprocess, time
+import json, subprocess, time, os
 
 TOKEN   = "nfc_sXKkYE8NeAQffNuVa5fFX5M7Fg7Xsxzpf23e"
 API     = "https://api.netlify.com/api/v1"
@@ -13,6 +13,30 @@ def curl(args, timeout=600):
     if r.returncode != 0:
         print(f"  [curl rc={r.returncode}] stderr={r.stderr.decode()[:400]}")
     return r
+
+# ========== Step 0: 打包 netlify-public/ + public/wake.html + public/404.html + netlify.toml 为 ZIP ==========
+import shutil
+print("===== [0/2] 打包 ZIP =====")
+if os.path.exists(ZIP):
+    os.remove(ZIP)
+# 打包 netlify-public 内容到 ZIP 根目录 + netlify.toml
+zip_base = "/tmp/chatroom-netlify-zip"
+if os.path.exists(zip_base):
+    shutil.rmtree(zip_base)
+os.makedirs(zip_base)
+# 直接把 netlify-public 里的文件复制到 ZIP 根目录（不带子目录）
+if os.path.isdir("/workspace/netlify-public"):
+    for f in os.listdir("/workspace/netlify-public"):
+        src = os.path.join("/workspace/netlify-public", f)
+        if os.path.isfile(src):
+            shutil.copy(src, os.path.join(zip_base, f))
+# 复制 netlify.toml
+if os.path.isfile("/workspace/netlify.toml"):
+    shutil.copy("/workspace/netlify.toml", f"{zip_base}/netlify.toml")
+print(f"  打包目录：{zip_base}")
+# 用 zip 命令打包
+subprocess.run(["zip", "-r", ZIP, "."], cwd=zip_base, check=True, capture_output=True)
+print(f"  ZIP 大小：{os.path.getsize(ZIP)/1024/1024:.2f} MB")
 
 # ========== Step 1: POST ZIP as deploy (title=production) ==========
 print("===== [1/2] 上传 ZIP 触发部署（deploy-by-zip，单请求搞定）=====")

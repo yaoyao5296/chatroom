@@ -185,8 +185,32 @@ body{display:flex;align-items:center;justify-content:center;padding:24px}
     going = true;
     clearInterval(pollTimer);
     clearInterval(cdTimer);
-    log('🚀 跳转到 ' + BORE_URL);
-    setTimeout(function(){ location.replace(BORE_URL); }, 150);
+    log('✅ Codespace 已就绪，正在验证 Bore 隧道连通性…');
+    // 先轮询 bore.pub:31425 确认可达再跳转，避免空白页
+    var boreTries = 0;
+    var maxBoreTries = 20; // 最多等 60 秒
+    var boreTimer = setInterval(function(){
+      boreTries++;
+      fetch(BORE_URL + '/', { mode: 'no-cors', cache: 'no-store' })
+        .then(function(){
+          clearInterval(boreTimer);
+          log('🚀 Bore 隧道已连通！正在跳转…（尝试 ' + boreTries + ' 次）');
+          setTimeout(function(){ location.replace(BORE_URL); }, 200);
+        })
+        .catch(function(){
+          if (boreTries % 5 === 0) log('⏳ Bore 隧道还未就绪，重试 ' + boreTries + '/' + maxBoreTries + '…');
+          if (boreTries >= maxBoreTries){
+            clearInterval(boreTimer);
+            log('⚠️ Bore 隧道 60 秒内未就绪，显示阿里云备用入口');
+            going = false;
+            title.textContent = '⚠️ Bore 隧道未就绪';
+            tip.textContent = 'Bore 隧道连接超时，请点下方阿里云备用入口';
+            etaTip.textContent = '阿里云 24h 在线，立即可用';
+            secNum.textContent = '0';
+            barFill.style.transform = 'scaleX(0)';
+          }
+        });
+    }, 3000);
   }
 
   async function getState(){
