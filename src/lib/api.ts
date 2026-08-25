@@ -5,6 +5,7 @@
  */
 
 import { isAndroid, isNativeApp } from './platform'
+import { ensureServerAwake, isWakeEnabled } from './wakeCodespace'
 
 // 服务器地址：新服务器 IP
 const IPV4_BASE = (typeof window !== 'undefined' && window.location.hostname) ? (window.location.protocol + '//' + window.location.host + '/api') : '/api'
@@ -155,6 +156,15 @@ export async function request<T>(url: string, options: RequestInit = {}): Promis
   try {
     return await doFetch(API_BASE)
   } catch (err: any) {
+    // APK 唤醒场景：网络错误时自动唤醒 Codespace，成功后重试一次
+    if (isNetworkError(err) && isWakeEnabled()) {
+      try {
+        await ensureServerAwake()
+        return await doFetch(API_BASE)
+      } catch {
+        // 唤醒失败：继续走下面的离线提示
+      }
+    }
     // 网络错误 → 尝试备用地址
     if (isNetworkError(err) && API_FALLBACK) {
       try {

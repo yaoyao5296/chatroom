@@ -7,6 +7,7 @@ import { useUnreadStore } from "@/store/unreadStore"
 import type { Message, GroupMessage } from "@/lib/api"
 import { requestNotificationPermission, showNotification } from "@/lib/notification"
 import { disconnectSocket } from "@/lib/socket"
+import { getStoredPAT, notifyPATSet, isWakeEnabled } from "@/lib/wakeCodespace"
 import AIPanel from "@/components/AIPanel"
 import Login from "@/pages/Login"
 import Register from "@/pages/Register"
@@ -204,6 +205,128 @@ function ServerOfflineBanner() {
   )
 }
 
+/**
+ * 唤醒门：APK 环境下服务器不可达时，自动唤起 Codespace。
+ * - 首次需要 GitHub PAT：弹出输入框，存 localStorage
+ * - 唤醒过程显示进度（启动 Codespace → 等 Bore 隧道）
+ * - 全程可点"网页唤醒"备用入口
+ */
+function WakeGate() {
+  const [show, setShow] = useState(false)
+  const [mode, setMode] = useState<'pat' | 'waking' | 'failed'>('pat')
+  const [status, setStatus] = useState('')
+  const [patInput, setPatInput] = useState('')
+
+  useEffect(() => {
+    if (!isWakeEnabled()) return
+    // 已有 PAT：直接进入 waking 等待态（实际唤醒由 api 层触发）
+    const onNeedPAT = () => {
+      setMode('pat')
+      setShow(true)
+    }
+    const onProgress = (e: Event) => {
+      const d = (e as CustomEvent).detail
+      const s = d?.state
+      if (s === 'need-pat') {
+        setMode('pat')
+        setShow(true)
+      } else if (s === 'starting' || s === 'waiting-bore') {
+        setMode('waking')
+        setShow(true)
+      } else if (s === 'ready') {
+        setShow(false)
+      } else if (s === 'failed') {
+        setMode('failed')
+      }
+      setStatus(d?.message || '')
+    }
+    window.addEventListener('need-gh-pat', onNeedPAT)
+    window.addEventListener('wake-progress', onProgress)
+    return () => {
+      window.removeEventListener('need-gh-pat', onNeedPAT)
+      window.removeEventListener('wake-progress', onProgress)
+    }
+  }, [])
+
+  if (!show) return null
+
+  const submitPAT = () => {
+    const v = patInput.trim()
+    if (!v) return
+    notifyPATSet(v)
+    setMode('waking')
+    setStatus('已收到 PAT，正在唤醒服务器…')
+  }
+
+  const WAKE_URL = (import.meta as any).env?.VITE_WAKE_URL as string | undefined
+
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <div className="w-full max-w-sm bg-[#12121a] border border-white/10 rounded-2xl p-6 shadow-2xl text-slate-100">
+        {mode === 'pat' && (
+          <>
+            <h2 className="text-lg font-bold mb-2">需要 GitHub PAT 唤醒服务器</h2>
+            <p className="text-sm text-slate-400 mb-4 leading-relaxed">
+              服务器当前离线。请粘贴你的 GitHub PAT（至少含 <code className="px-1 bg-white/10 rounded">codespace</code> 权限）来启动服务器。
+              <br />PAT 仅保存在本机，不会上传。前往{' '}
+              <a href="https://github.com/settings/tokens" target="_blank" rel="noopener" className="text-sky-400 underline">GitHub 设置</a> 创建。
+            </p>
+            <textarea
+              value={patInput}
+              onChange={(e) => setPatInput(e.target.value)}
+              placeholder="ghp_..."
+              rows={3}
+              className="w-full px-3 py-2 mb-3 bg-black/40 border border-white/10 rounded-lg text-sm font-mono focus:outline-none focus:border-sky-500"
+            />
+            <button
+              onClick={submitPAT}
+              disabled={!patInput.trim()}
+              className="w-full py-2.5 mb-2 bg-gradient-to-r from-sky-500 to-indigo-500 text-white font-medium rounded-lg disabled:opacity-40"
+            >
+              唤醒服务器
+            </button>
+          </>
+        )}
+
+        {mode === 'waking' && (
+          <>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-7 h-7 border-2 border-sky-400/30 border-t-sky-400 rounded-full animate-spin" />
+              <h2 className="text-lg font-bold">正在唤醒服务器</h2>
+            </div>
+            <p className="text-sm text-slate-300 mb-4">{status || '正在启动 Codespace…'}</p>
+            <p className="text-xs text-slate-500">首次唤醒约需 60–120 秒，请勿关闭 APP。</p>
+          </>
+        )}
+
+        {mode === 'failed' && (
+          <>
+            <h2 className="text-lg font-bold mb-2 text-amber-400">唤醒失败</h2>
+            <p className="text-sm text-slate-300 mb-4">{status || '请稍后重试，或改用网页唤醒。'}</p>
+            <button
+              onClick={() => { setMode('pat'); setStatus('') }}
+              className="w-full py-2.5 mb-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm"
+            >
+              重新输入 PAT
+            </button>
+          </>
+        )}
+
+        {WAKE_URL && (
+          <a
+            href={WAKE_URL}
+            target="_blank"
+            rel="noopener"
+            className="block text-center text-xs text-slate-400 underline mt-3"
+          >
+            改用网页唤醒（浏览器打开）
+          </a>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const init = useAuthStore((s) => s.init)
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn)
@@ -216,6 +339,7 @@ export default function App() {
   return (
     <Router>
       <ServerOfflineBanner />
+      <WakeGate />
       {isLoggedIn && <SocketListener />}
       <Routes>
         <Route path="/" element={isLoggedIn ? <Navigate to="/friends" replace /> : <Login />} />
