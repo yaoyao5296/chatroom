@@ -14,7 +14,7 @@
   "apps": [
     {
       "categories": [
-        ".tmp-fdroid"
+        "chatroom"
       ],
       "suggestedVersionCode": "2147483647",
       "license": "Unknown",

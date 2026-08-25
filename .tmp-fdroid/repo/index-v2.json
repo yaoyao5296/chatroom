@@ -16,9 +16,9 @@
     "address": "https://yaoyao5296.github.io/chatroom-fdroid/repo",
     "timestamp": 1787659030000,
     "categories": {
-      ".tmp-fdroid": {
+      "chatroom": {
         "name": {
-          "en-US": ".tmp-fdroid"
+          "en-US": "ChatRoom"
         }
       }
     }
@@ -28,7 +28,7 @@
       "metadata": {
         "added": 1787659026000,
         "categories": [
-          ".tmp-fdroid"
+          "chatroom"
         ],
         "lastUpdated": 1787659026000,
         "name": {
