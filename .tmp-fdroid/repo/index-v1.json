@@ -1,6 +1,6 @@
 {
   "repo": {
-    "timestamp": 1787657308000,
+    "timestamp": 1787659030000,
     "version": 20002,
     "name": "ChatRoom",
     "icon": "icon.png",
@@ -11,6 +11,63 @@
     "install": [],
     "uninstall": []
   },
-  "apps": [],
-  "packages": {}
+  "apps": [
+    {
+      "categories": [
+        ".tmp-fdroid"
+      ],
+      "suggestedVersionCode": "2147483647",
+      "license": "Unknown",
+      "name": "ChatRoom",
+      "added": 1787659026000,
+      "packageName": "com.chatroom.app",
+      "lastUpdated": 1787659026000
+    }
+  ],
+  "packages": {
+    "com.chatroom.app": [
+      {
+        "added": 1787659026000,
+        "apkName": "ChatRoom.apk",
+        "hash": "cd297859cc8c2f7b4f8a6c533168f144fbb15ef3129c0f4c100040c81c5ad45d",
+        "hashType": "sha256",
+        "minSdkVersion": 24,
+        "nativecode": [
+          "arm64-v8a",
+          "armeabi-v7a",
+          "x86",
+          "x86_64"
+        ],
+        "packageName": "com.chatroom.app",
+        "sig": "9096e967a47da0ddfbdafd735138bca7",
+        "signer": "22074e56c6ca59fe3d7ec5a7a793a9a9834095af226b38a934f86c4b5e9f4dbd",
+        "size": 30978468,
+        "targetSdkVersion": 36,
+        "uses-permission": [
+          [
+            "android.permission.INTERNET",
+            null
+          ],
+          [
+            "android.permission.RECEIVE_BOOT_COMPLETED",
+            null
+          ],
+          [
+            "android.permission.WAKE_LOCK",
+            null
+          ],
+          [
+            "android.permission.POST_NOTIFICATIONS",
+            null
+          ],
+          [
+            "com.chatroom.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+            null
+          ]
+        ],
+        "versionCode": 1,
+        "versionName": "1.0"
+      }
+    ]
+  }
 }

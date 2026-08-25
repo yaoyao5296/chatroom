@@ -1,19 +1,5 @@
 {
   "repo": {
-    "name": {
-      "en-US": "ChatRoom"
-    },
-    "description": {
-      "en-US": "ChatRoom App Repository"
-    },
-    "icon": {
-      "en-US": {
-        "name": "/icons/icon.png",
-        "sha256": "bc434969ce28538a927e59a614897d775e4d1fd400d71ffbe4008e7dbe197283",
-        "size": 860
-      }
-    },
-    "address": "https://yaoyao5296.github.io/chatroom-fdroid/repo",
     "timestamp": 1787659030000,
     "categories": {
       ".tmp-fdroid": {

@@ -4,31 +4,38 @@
   "apksigner": null,
   "archivePolicy0": [],
   "commandLine": [
-    "/root/.pyenv/versions/3.14.7/bin/fdroid update",
-    "--nosign",
+    "fdroid update",
+    "--create-key",
+    "--create-metadata",
     "--pretty",
     "--clean"
   ],
   "disabled": [],
-  "endTimestamp": 1787657309357,
+  "endTimestamp": 1787659034058,
   "failedBuilds": {},
   "jarsigner": "/root/.local/share/mise/shims/jarsigner",
   "keytool": "/root/.local/share/mise/shims/keytool",
-  "needsUpdate": [],
-  "noPackages": [],
-  "noUpdateCheck": [],
+  "needsUpdate": [
+    "com.chatroom.app"
+  ],
+  "noPackages": [
+    "com.chatroom.app"
+  ],
+  "noUpdateCheck": [
+    "com.chatroom.app"
+  ],
   "stages": {
-    "archive_old_apks archive": 1787657306658,
-    "delete_disabled_builds": 1787657304343,
-    "index.make archive": 1787657306659,
-    "index.make repo": 1787657308021,
-    "prepare_apps archive": 1787657306659,
-    "prepare_apps repo": 1787657308019,
-    "process_apks": 1787657304344,
-    "read_added_date_from_all_apks": 1787657306657,
-    "remove_apks": 1787657304347,
-    "scan_repo_files": 1787657304346
+    "archive_old_apks archive": 1787659026576,
+    "delete_disabled_builds": 1787659026076,
+    "index.make archive": 1787659026577,
+    "index.make repo": 1787659030370,
+    "prepare_apps archive": 1787659026577,
+    "prepare_apps repo": 1787659030367,
+    "process_apks": 1787659026077,
+    "read_added_date_from_all_apks": 1787659026575,
+    "remove_apks": 1787659026570,
+    "scan_repo_files": 1787659026569
   },
-  "startTimestamp": 1787657304000,
+  "startTimestamp": 1787659022000,
   "subcommand": "update"
 }

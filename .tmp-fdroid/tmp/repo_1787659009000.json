@@ -1,10 +1,10 @@
 {
   "repo": {
     "name": {
-      "en-US": "My First F-Droid Archive Demo"
+      "en-US": "ChatRoom"
     },
     "description": {
-      "en-US": "These are the apps that have been archived from the main repo."
+      "en-US": "ChatRoom App Repository"
     },
     "icon": {
       "en-US": {
@@ -13,8 +13,8 @@
         "size": 860
       }
     },
-    "address": "https://yaoyao5296.github.io/chatroom-fdroid/archive",
-    "timestamp": 1787659026000
+    "address": "https://yaoyao5296.github.io/chatroom-fdroid/repo",
+    "timestamp": 1787659009000
   },
   "packages": {}
 }

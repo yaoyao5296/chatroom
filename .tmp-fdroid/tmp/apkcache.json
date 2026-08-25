@@ -1,0 +1,52 @@
+{
+  "METADATA_VERSION": 20002,
+  "allow_disabled_algorithms": false,
+  "ChatRoom.apk": {
+    "hash": "cd297859cc8c2f7b4f8a6c533168f144fbb15ef3129c0f4c100040c81c5ad45d",
+    "hashType": "sha256",
+    "uses-permission": [
+      [
+        "android.permission.INTERNET",
+        null
+      ],
+      [
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        null
+      ],
+      [
+        "android.permission.WAKE_LOCK",
+        null
+      ],
+      [
+        "android.permission.POST_NOTIFICATIONS",
+        null
+      ],
+      [
+        "com.chatroom.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+        null
+      ]
+    ],
+    "uses-permission-sdk-23": [],
+    "features": [],
+    "icons_src": {},
+    "icons": {},
+    "antiFeatures": {},
+    "packageName": "com.chatroom.app",
+    "versionCode": 1,
+    "name": "ChatRoom",
+    "versionName": "1.0",
+    "minSdkVersion": 24,
+    "targetSdkVersion": 36,
+    "nativecode": [
+      "arm64-v8a",
+      "armeabi-v7a",
+      "x86",
+      "x86_64"
+    ],
+    "sig": "9096e967a47da0ddfbdafd735138bca7",
+    "signer": "22074e56c6ca59fe3d7ec5a7a793a9a9834095af226b38a934f86c4b5e9f4dbd",
+    "size": 30978468,
+    "apkName": "ChatRoom.apk",
+    "added": 1787659026.569442
+  }
+}
