@@ -7,6 +7,7 @@ import { useUnreadStore } from "@/store/unreadStore"
 import type { Message, GroupMessage } from "@/lib/api"
 import { requestNotificationPermission, showNotification } from "@/lib/notification"
 import { disconnectSocket } from "@/lib/socket"
+import { isWakeEnabled } from "@/lib/wakeCodespace"
 import AIPanel from "@/components/AIPanel"
 import Login from "@/pages/Login"
 import Register from "@/pages/Register"
@@ -204,6 +205,85 @@ function ServerOfflineBanner() {
   )
 }
 
+/**
+ * 唤醒门：APK 环境下服务器不可达时，自动唤起 Codespace。
+ * - PAT-free：由 Netlify Edge Function 代管 PAT，用户无需输入
+ * - 唤醒过程显示进度（启动 Codespace → 等 Bore 隧道）
+ * - 失败时可点"网页唤醒"备用入口
+ */
+function WakeGate() {
+  const [show, setShow] = useState(false)
+  const [mode, setMode] = useState<'waking' | 'failed'>('waking')
+  const [status, setStatus] = useState('')
+
+  useEffect(() => {
+    if (!isWakeEnabled()) return
+    const onProgress = (e: Event) => {
+      const d = (e as CustomEvent).detail
+      const s = d?.state
+      if (s === 'starting' || s === 'waiting-bore') {
+        setMode('waking')
+        setShow(true)
+      } else if (s === 'ready') {
+        setShow(false)
+      } else if (s === 'failed') {
+        setMode('failed')
+        setShow(true)
+      }
+      setStatus(d?.message || '')
+    }
+    window.addEventListener('wake-progress', onProgress)
+    return () => {
+      window.removeEventListener('wake-progress', onProgress)
+    }
+  }, [])
+
+  if (!show) return null
+
+  const WAKE_URL = (import.meta as any).env?.VITE_WAKE_URL as string | undefined
+
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <div className="w-full max-w-sm bg-[#12121a] border border-white/10 rounded-2xl p-6 shadow-2xl text-slate-100">
+        {mode === 'waking' && (
+          <>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-7 h-7 border-2 border-sky-400/30 border-t-sky-400 rounded-full animate-spin" />
+              <h2 className="text-lg font-bold">正在唤醒服务器</h2>
+            </div>
+            <p className="text-sm text-slate-300 mb-4">{status || '正在启动 Codespace…'}</p>
+            <p className="text-xs text-slate-500">首次唤醒约需 60–120 秒，请勿关闭 APP。</p>
+          </>
+        )}
+
+        {mode === 'failed' && (
+          <>
+            <h2 className="text-lg font-bold mb-2 text-amber-400">唤醒失败</h2>
+            <p className="text-sm text-slate-300 mb-4">{status || '请稍后重试，或改用网页唤醒。'}</p>
+            <button
+              onClick={() => { setShow(false) }}
+              className="w-full py-2.5 mb-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm"
+            >
+              关闭
+            </button>
+          </>
+        )}
+
+        {WAKE_URL && (
+          <a
+            href={WAKE_URL}
+            target="_blank"
+            rel="noopener"
+            className="block text-center text-xs text-slate-400 underline mt-3"
+          >
+            改用网页唤醒（浏览器打开）
+          </a>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const init = useAuthStore((s) => s.init)
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn)
@@ -216,6 +296,7 @@ export default function App() {
   return (
     <Router>
       <ServerOfflineBanner />
+      <WakeGate />
       {isLoggedIn && <SocketListener />}
       <Routes>
         <Route path="/" element={isLoggedIn ? <Navigate to="/friends" replace /> : <Login />} />
