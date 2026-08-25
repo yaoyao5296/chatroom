@@ -1,0 +1,34 @@
+{
+  "/etc/issue.net": "Ubuntu 24.04.3 LTS",
+  "antiFeatures": {},
+  "apksigner": null,
+  "archivePolicy0": [],
+  "commandLine": [
+    "/root/.pyenv/versions/3.14.7/bin/fdroid update",
+    "--nosign",
+    "--pretty",
+    "--clean"
+  ],
+  "disabled": [],
+  "endTimestamp": 1787657309357,
+  "failedBuilds": {},
+  "jarsigner": "/root/.local/share/mise/shims/jarsigner",
+  "keytool": "/root/.local/share/mise/shims/keytool",
+  "needsUpdate": [],
+  "noPackages": [],
+  "noUpdateCheck": [],
+  "stages": {
+    "archive_old_apks archive": 1787657306658,
+    "delete_disabled_builds": 1787657304343,
+    "index.make archive": 1787657306659,
+    "index.make repo": 1787657308021,
+    "prepare_apps archive": 1787657306659,
+    "prepare_apps repo": 1787657308019,
+    "process_apks": 1787657304344,
+    "read_added_date_from_all_apks": 1787657306657,
+    "remove_apks": 1787657304347,
+    "scan_repo_files": 1787657304346
+  },
+  "startTimestamp": 1787657304000,
+  "subcommand": "update"
+}

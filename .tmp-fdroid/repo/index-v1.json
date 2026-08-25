@@ -1,0 +1,16 @@
+{
+  "repo": {
+    "timestamp": 1787657308000,
+    "version": 20002,
+    "name": "ChatRoom",
+    "icon": "icon.png",
+    "address": "https://yaoyao5296.github.io/chatroom-fdroid/repo",
+    "description": "ChatRoom App Repository"
+  },
+  "requests": {
+    "install": [],
+    "uninstall": []
+  },
+  "apps": [],
+  "packages": {}
+}
