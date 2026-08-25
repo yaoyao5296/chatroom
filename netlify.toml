@@ -1,10 +1,27 @@
-# Netlify 配置：纯静态版本（唤醒逻辑全部在 public/index.html 前端 JS 里完成）
-# 优点：ZIP 直接上传就能生效，不依赖 Edge Functions
-[build]
-  publish = "."
-  command = "echo 'pure static — no build needed'"
+# Netlify Edge Function 部署配置
+# 必须通过 Git 集成或 netlify deploy 部署（ZIP 上传不支持 Edge Functions）
 
-# clean URLs：访问 /wake 自动找 wake.html
+[[edge_functions]]
+  function = "wake"
+  path = "/"
+
+[[edge_functions]]
+  function = "wake"
+  path = "/wake"
+
+[[edge_functions]]
+  function = "wake"
+  path = "/status"
+
+[[edge_functions]]
+  function = "wake"
+  path = "/health"
+
+# 静态文件目录（可选，Edge Function 优先匹配）
+[build]
+  publish = "netlify-public"
+  command = "echo 'edge function mode — no static build needed'"
+
 [[headers]]
   for = "/*"
   [headers.values]
