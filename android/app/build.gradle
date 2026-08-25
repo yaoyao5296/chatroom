@@ -12,6 +12,9 @@ android {
     compileSdk = rootProject.ext.compileSdkVersion
 
     signingConfigs {
+        debug {
+            // 使用默认 debug 签名（Android SDK 自带）
+        }
         release {
             if (keystorePropertiesFile.exists()) {
                 storeFile file(keystoreProperties["storeFile"])
@@ -21,10 +24,10 @@ android {
             } else {
                 // F-Droid / CI 无 keystore.properties 时，用 debug 签名构建
                 // F-Droid 会用自己的密钥重签发布版 APK
-                storeFile debug.signingConfig.storeFile
-                storePassword debug.signingConfig.storePassword
-                keyAlias debug.signingConfig.keyAlias
-                keyPassword debug.signingConfig.keyPassword
+                storeFile signingConfigs.debug.storeFile
+                storePassword signingConfigs.debug.storePassword
+                keyAlias signingConfigs.debug.keyAlias
+                keyPassword signingConfigs.debug.keyPassword
             }
         }
     }

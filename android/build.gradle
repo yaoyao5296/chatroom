@@ -10,6 +10,9 @@ buildscript {
     }
 }
 
+// 应用 ext 变量（compileSdkVersion 等）
+apply from: 'variables.gradle'
+
 allprojects {
     repositories {
         maven { url 'https://maven.aliyun.com/repository/google' }
