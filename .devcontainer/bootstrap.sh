@@ -109,17 +109,16 @@ if [ "$NEED_INSTALL" = "1" ]; then
     echo "[bootstrap] 安装 python3-setuptools（提供 distutils）"
     sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y python3-setuptools >/dev/null 2>&1 || true
   fi
-  # 临时切换 NODE_ENV=development，否则 npm 在 production 下会跳过 devDependencies
-  ORIG_NODE_ENV="${NODE_ENV:-}"
-  export NODE_ENV=development
-  # 使用 --ignore-scripts 跳过 electron 下载（国内网络超时），后续单独编译 better-sqlite3
-  npm install --no-audit --no-fund --include=dev --ignore-scripts 2>&1 | tail -5
+  # 使用 npm ci + --prefer-offline 加速：
+  #   - npm ci 利用 package-lock.json 跳过依赖解析，比 npm install 快得多
+  #   - --prefer-offline 优先读本地缓存，后续启动只需从缓存提取
+  #   - --ignore-scripts 跳过 electron 下载（国内网络超时），后续单独编译 better-sqlite3
+  npm ci --no-audit --no-fund --include=dev --ignore-scripts --prefer-offline 2>&1 | tail -5
   # 单独编译 better-sqlite3 原生模块
   if [ -d node_modules/better-sqlite3 ] && [ ! -f node_modules/better-sqlite3/build/Release/better_sqlite3.node ]; then
     echo "[bootstrap] 编译 better-sqlite3 原生模块"
     (cd node_modules/better-sqlite3 && npx --yes node-gyp rebuild --release 2>&1 | tail -3) || echo "[bootstrap] ⚠ better-sqlite3 编译失败"
   fi
-  export NODE_ENV="$ORIG_NODE_ENV"
 else
   echo "[bootstrap] node_modules 完整，跳过安装"
 fi
