@@ -12,6 +12,9 @@ export NVM_DIR="${NVM_DIR:-/home/codespace/.nvm}"
 
 echo "[bootstrap] 启动于 $(date -u +%FT%TZ)  node=$(node -v 2>/dev/null || echo '?')  npm=$(npm -v 2>/dev/null || echo '?')"
 
+# 设置国内源加速
+npm config set registry https://registry.npmmirror.com 2>/dev/null
+
 # ============ 0.5) 确定项目根目录 ============
 ROOT=""
 for d in /workspaces/chatroom "${CODESPACE_VSCODE_FOLDER:-}" /workspace .; do
@@ -109,13 +112,10 @@ if [ "$NEED_INSTALL" = "1" ]; then
   # 临时切换 NODE_ENV=development，否则 npm 在 production 下会跳过 devDependencies
   ORIG_NODE_ENV="${NODE_ENV:-}"
   export NODE_ENV=development
-  if [ -f package-lock.json ]; then
-    npm ci --no-audit --no-fund --include=dev 2>&1 | tail -5 || npm install --no-audit --no-fund --include=dev 2>&1 | tail -5
-  else
-    npm install --no-audit --no-fund --include=dev 2>&1 | tail -5
-  fi
-  # 确保 better-sqlite3 原生模块编译完成
-  if [ ! -f node_modules/better-sqlite3/build/Release/better_sqlite3.node ]; then
+  # 使用 --ignore-scripts 跳过 electron 下载（国内网络超时），后续单独编译 better-sqlite3
+  npm install --no-audit --no-fund --include=dev --ignore-scripts 2>&1 | tail -5
+  # 单独编译 better-sqlite3 原生模块
+  if [ -d node_modules/better-sqlite3 ] && [ ! -f node_modules/better-sqlite3/build/Release/better_sqlite3.node ]; then
     echo "[bootstrap] 编译 better-sqlite3 原生模块"
     (cd node_modules/better-sqlite3 && npx --yes node-gyp rebuild --release 2>&1 | tail -3) || echo "[bootstrap] ⚠ better-sqlite3 编译失败"
   fi
@@ -123,6 +123,10 @@ if [ "$NEED_INSTALL" = "1" ]; then
 else
   echo "[bootstrap] node_modules 完整，跳过安装"
 fi
+
+# ============ 3.5) 构建前端（确保 JS 文件最新，避免白屏） ============
+echo "[bootstrap] 构建前端..."
+npx vite build 2>&1 | tail -3
 
 # ============ 4) Redis 安装检查（install-deps.sh 已预装，这里只兜底） ============
 if ! command -v redis-server >/dev/null 2>&1; then
@@ -223,8 +227,18 @@ fi
 # 用 PM2 管理 bore 进程（daemon 独立于 SSH 会话，避免 SSH 退出被杀）
 if [ -x "$BORE_BIN" ]; then
   npx pm2 delete bore 2>/dev/null || true
+  npx pm2 delete bore-socat 2>/dev/null || true
+
+  # 先启动 socat 代理隧道（bore.pub:7835 需要走 HTTP 代理）
+  echo "[bootstrap] 启动 socat 代理隧道（bore.pub:7835 -> 127.0.0.1:7835）"
+  if command -v socat >/dev/null 2>&1; then
+    npx pm2 start socat --name bore-socat --interpreter none -- \
+      TCP-LISTEN:7835,fork,reuseaddr "PROXY:127.0.0.1:bore.pub:7835,proxyport=18080" 2>&1 | tail -2
+    sleep 2
+  fi
+
   echo "[bootstrap] 启动 Bore 转发（local 3001 -> bore.pub:31425）"
-  npx pm2 start "$BORE_BIN" --name bore --interpreter none -- local 3001 --to bore.pub --port 31425 2>&1 | tail -2
+  npx pm2 start "$BORE_BIN" --name bore --interpreter none -- local 3001 --to 127.0.0.1 --port 31425 2>&1 | tail -2
   # 等待 Bore 连接建立并探测转发是否就绪（直接请求 bore.pub:31425 的 health 接口）
   BORE_URL="http://bore.pub:31425"
   BORE_OK=0
@@ -270,6 +284,16 @@ else
   echo "[bootstrap] ⚠ GH_PAT 未设置，空闲守护不会真正停止 codespace（仅记录日志）"
   nohup node scripts/codespace-idle-watcher.mjs > logs/idle-watcher.log 2>&1 &
   echo $! > .idle-watcher.pid
+fi
+
+# ============ 8) 启动看门狗（PM2 守护，崩溃自动重启） ============
+WATCHDOG_SH="$ROOT/.devcontainer/watchdog.sh"
+if [ -x "$WATCHDOG_SH" ]; then
+  chmod +x "$WATCHDOG_SH" 2>/dev/null
+  npx pm2 delete watchdog 2>/dev/null || true
+  echo "[bootstrap] 启动看门狗（每 30 秒检查服务+隧道）"
+  npx pm2 start "$WATCHDOG_SH" --name watchdog --interpreter bash 2>&1 | tail -2
+  npx pm2 save 2>&1
 fi
 
 echo "[bootstrap] 完成，服务地址: ${PUBLIC_URL:-http://localhost:3001}"
