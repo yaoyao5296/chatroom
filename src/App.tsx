@@ -9,17 +9,19 @@ import { requestNotificationPermission, showNotification } from "@/lib/notificat
 import { disconnectSocket } from "@/lib/socket"
 import { isWakeEnabled } from "@/lib/wakeCodespace"
 import AIPanel from "@/components/AIPanel"
-import Login from "@/pages/Login"
-import Register from "@/pages/Register"
-import Friends from "@/pages/Friends"
-import Chat from "@/pages/Chat"
-import Settings from "@/pages/Settings"
-import About from "@/pages/About"
-import Moments from "@/pages/Moments"
-import CreatePost from "@/pages/CreatePost"
-import VipPlans from "@/pages/VipPlans"
-import Notifications from "@/pages/Notifications"
-import AdminPanel from "@/pages/AdminPanel"
+
+// 页面懒加载，每个页面独立 chunk
+const Login = lazy(() => import("./pages/Login"))
+const Register = lazy(() => import("./pages/Register"))
+const Friends = lazy(() => import("./pages/Friends"))
+const Chat = lazy(() => import("./pages/Chat"))
+const Settings = lazy(() => import("./pages/Settings"))
+const About = lazy(() => import("./pages/About"))
+const Moments = lazy(() => import("./pages/Moments"))
+const CreatePost = lazy(() => import("./pages/CreatePost"))
+const VipPlans = lazy(() => import("./pages/VipPlans"))
+const Notifications = lazy(() => import("./pages/Notifications"))
+const AdminPanel = lazy(() => import("./pages/AdminPanel"))
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn)
@@ -298,21 +300,27 @@ export default function App() {
       <ServerOfflineBanner />
       <WakeGate />
       {isLoggedIn && <SocketListener />}
-      <Routes>
-        <Route path="/" element={isLoggedIn ? <Navigate to="/friends" replace /> : <Login />} />
-        <Route path="/register" element={isLoggedIn ? <Navigate to="/friends" replace /> : <Register />} />
-        <Route path="/friends" element={<ProtectedRoute><Friends /></ProtectedRoute>} />
-        <Route path="/chat/:friendId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
-        <Route path="/group/:groupId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
-        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-        <Route path="/about" element={<ProtectedRoute><About /></ProtectedRoute>} />
-        <Route path="/moments" element={<ProtectedRoute><Moments /></ProtectedRoute>} />
-        <Route path="/moments/create" element={<ProtectedRoute><CreatePost /></ProtectedRoute>} />
-        <Route path="/vip" element={<ProtectedRoute><VipPlans /></ProtectedRoute>} />
-        <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
-        <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <Suspense fallback={
+        <div className="flex items-center justify-center h-screen bg-[#0F172A]">
+          <div className="text-slate-400 text-lg">加载中...</div>
+        </div>
+      }>
+        <Routes>
+          <Route path="/" element={isLoggedIn ? <Navigate to="/friends" replace /> : <Login />} />
+          <Route path="/register" element={isLoggedIn ? <Navigate to="/friends" replace /> : <Register />} />
+          <Route path="/friends" element={<ProtectedRoute><Friends /></ProtectedRoute>} />
+          <Route path="/chat/:friendId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+          <Route path="/group/:groupId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/about" element={<ProtectedRoute><About /></ProtectedRoute>} />
+          <Route path="/moments" element={<ProtectedRoute><Moments /></ProtectedRoute>} />
+          <Route path="/moments/create" element={<ProtectedRoute><CreatePost /></ProtectedRoute>} />
+          <Route path="/vip" element={<ProtectedRoute><VipPlans /></ProtectedRoute>} />
+          <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
+          <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
       {isLoggedIn && (
         <>
           <button

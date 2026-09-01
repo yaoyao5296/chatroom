@@ -40,9 +40,8 @@ export default defineConfig({
     reportCompressedSize: false,
     rollupOptions: {
       output: {
-        // 更细粒度的代码分割
+        // 只拆分第三方库，页面动态导入由 React.lazy 自动处理
         manualChunks(id) {
-          // 第三方库
           if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/') || id.includes('node_modules/react-router')) {
             return 'react-core'
           }
@@ -50,16 +49,6 @@ export default defineConfig({
           if (id.includes('node_modules/lucide-react')) return 'icons'
           if (id.includes('node_modules/clsx') || id.includes('node_modules/tailwind-merge')) return 'utils'
           if (id.includes('node_modules/socket.io-client')) return 'socket'
-          // 按页面模块拆分，每个页面独立 chunk
-          if (id.includes('/src/pages/')) {
-            const match = id.match(/\/src\/pages\/(\w+)\.(tsx|ts)$/)
-            if (match) return `page-${match[1]}`
-          }
-          // 组件模块拆分
-          if (id.includes('/src/components/')) {
-            const match = id.match(/\/src\/components\/(\w+)\.(tsx|ts)$/)
-            if (match) return `comp-${match[1]}`
-          }
         },
       },
     },
