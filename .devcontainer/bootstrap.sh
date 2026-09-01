@@ -123,9 +123,30 @@ else
   echo "[bootstrap] node_modules 完整，跳过安装"
 fi
 
-# ============ 3.5) 构建前端（确保 JS 文件最新，避免白屏） ============
-echo "[bootstrap] 构建前端..."
-npx vite build 2>&1 | tail -3
+# ============ 3.5) 构建前端（仅当 dist 中引用的 JS 文件缺失时重新构建） ============
+# 检查 dist/index.html 中引用的 JS 文件是否存在
+NEED_BUILD=0
+if [ ! -f dist/index.html ]; then
+  NEED_BUILD=1
+  echo "[bootstrap] 前端 dist 缺失，需构建"
+else
+  # 提取 HTML 中引用的所有 JS 文件，检查是否都存在
+  while IFS= read -r js_file; do
+    [ -z "$js_file" ] && continue
+    if [ ! -f "dist/assets/$js_file" ]; then
+      echo "[bootstrap] 缺失 JS: $js_file"
+      NEED_BUILD=1
+      break
+    fi
+  done < <(grep -oP 'src="/assets/\K[^"]+\.js' dist/index.html 2>/dev/null || echo "")
+  if [ "$NEED_BUILD" = "0" ]; then
+    echo "[bootstrap] 前端构建有效，跳过构建"
+  fi
+fi
+if [ "$NEED_BUILD" = "1" ]; then
+  echo "[bootstrap] 构建前端..."
+  npx vite build 2>&1 | tail -3
+fi
 
 # ============ 4) Redis 安装检查（install-deps.sh 已预装，这里只兜底） ============
 if ! command -v redis-server >/dev/null 2>&1; then
@@ -228,16 +249,8 @@ if [ -x "$BORE_BIN" ]; then
   npx pm2 delete bore 2>/dev/null || true
   npx pm2 delete bore-socat 2>/dev/null || true
 
-  # 先启动 socat 代理隧道（bore.pub:7835 需要走 HTTP 代理）
-  echo "[bootstrap] 启动 socat 代理隧道（bore.pub:7835 -> 127.0.0.1:7835）"
-  if command -v socat >/dev/null 2>&1; then
-    npx pm2 start socat --name bore-socat --interpreter none -- \
-      TCP-LISTEN:7835,fork,reuseaddr "PROXY:127.0.0.1:bore.pub:7835,proxyport=18080" 2>&1 | tail -2
-    sleep 2
-  fi
-
   echo "[bootstrap] 启动 Bore 转发（local 3001 -> bore.pub:31425）"
-  npx pm2 start "$BORE_BIN" --name bore --interpreter none -- local 3001 --to 127.0.0.1 --port 31425 2>&1 | tail -2
+  npx pm2 start "$BORE_BIN" --name bore --interpreter none -- local 3001 --to bore.pub --port 31425 2>&1 | tail -2
   # 等待 Bore 连接建立并探测转发是否就绪（直接请求 bore.pub:31425 的 health 接口）
   BORE_URL="http://bore.pub:31425"
   BORE_OK=0
