@@ -123,14 +123,26 @@ else
   echo "[bootstrap] node_modules 完整，跳过安装"
 fi
 
-# ============ 3.5) 构建前端（仅当 dist 中引用的 JS 文件缺失时重新构建） ============
-# 检查 dist/index.html 中引用的 JS 文件是否存在
+# ============ 3.5) 构建前端（检测代码变更后强制重建） ============
+# 通过比较 git commit hash 判断代码是否变更
 NEED_BUILD=0
-if [ ! -f dist/index.html ]; then
+CURRENT_HASH=""
+if command -v git >/dev/null 2>&1 && git rev-parse --short HEAD >/dev/null 2>&1; then
+  CURRENT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "")
+fi
+if [ -n "$CURRENT_HASH" ] && [ -f .build-version ]; then
+  OLD_HASH=$(cat .build-version 2>/dev/null || echo "")
+  if [ "$CURRENT_HASH" != "$OLD_HASH" ]; then
+    echo "[bootstrap] 代码变更（$OLD_HASH → $CURRENT_HASH），需重建"
+    NEED_BUILD=1
+  fi
+fi
+if [ "$NEED_BUILD" = "0" ] && [ ! -f dist/index.html ]; then
   NEED_BUILD=1
   echo "[bootstrap] 前端 dist 缺失，需构建"
-else
-  # 提取 HTML 中引用的所有 JS 文件，检查是否都存在
+fi
+if [ "$NEED_BUILD" = "0" ]; then
+  # 检查 JS 文件是否存在
   while IFS= read -r js_file; do
     [ -z "$js_file" ] && continue
     if [ ! -f "dist/assets/$js_file" ]; then
@@ -139,13 +151,16 @@ else
       break
     fi
   done < <(grep -oP 'src="/assets/\K[^"]+\.js' dist/index.html 2>/dev/null || echo "")
-  if [ "$NEED_BUILD" = "0" ]; then
-    echo "[bootstrap] 前端构建有效，跳过构建"
-  fi
 fi
 if [ "$NEED_BUILD" = "1" ]; then
   echo "[bootstrap] 构建前端..."
   npx vite build 2>&1 | tail -3
+  if [ -n "$CURRENT_HASH" ]; then
+    echo "$CURRENT_HASH" > .build-version
+    echo "[bootstrap] 记录构建版本: $CURRENT_HASH"
+  fi
+else
+  echo "[bootstrap] 前端构建有效，跳过构建（hash: ${CURRENT_HASH:-unknown}）"
 fi
 
 # ============ 4) Redis 安装检查（install-deps.sh 已预装，这里只兜底） ============
