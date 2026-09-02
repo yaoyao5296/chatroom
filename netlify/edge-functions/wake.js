@@ -62,7 +62,7 @@ async function startCS() {
 }
 
 const STATE_TEXT = {
-  Available:    '✅ 服务就绪，正在跳转…',
+  Available:    '✅ 服务就绪，正在检测 Bore 隧道…',
   Queued:       '⏳ 资源排队中…',
   Provisioning: '🔧 机器分配中…',
   Starting:     '🚀 Codespace 启动中…',
@@ -161,9 +161,32 @@ body{display:flex;align-items:center;justify-content:center;padding:24px}
   }
   cdTm=setInterval(tickCD,1000);
 
-  function run(){if(go)return;go=true;clearInterval(tm);clearInterval(cdTm);location.replace(B);}
+  var boreReady=false;
+
+  // 探测 Bore 隧道是否可达
+  async function probeBore(){
+    try{
+      var r=await fetch(B,{mode:'no-cors',cache:'no-store'});
+      boreReady=true;
+      return true;
+    }catch(e){
+      boreReady=false;
+      return false;
+    }
+  }
+
+  function doJump(){
+    if(go)return;
+    go=true;clearInterval(tm);clearInterval(cdTm);
+    tip.textContent='✅ Bore 隧道就绪，正在跳转…';
+    setTimeout(function(){location.replace(B)},500);
+  }
+
   async function poll(){
     try{
+      // 如果已经确认 bore 可达，直接跳转
+      if(boreReady){doJump();return;}
+
       var u=new URL(location.href);
       u.searchParams.set('status','1');u.searchParams.set('_',Date.now());
       var r=await fetch(u.toString(),{cache:'no-store'});
@@ -171,17 +194,33 @@ body{display:flex;align-items:center;justify-content:center;padding:24px}
       var s=j.state||'Unknown';
       pill.textContent='当前状态：'+s;
       tip.textContent=T[s]||('⏳ 状态：'+s);
+
       if(s==='Available'||j.ready){
         icon.className='check';icon.textContent='✓';
-        bar.style.display='none';cd.style.display='none';etaTip.style.display='none';
-        jump.style.display='';t.textContent='✅ 服务已就绪';
-        // 就绪后倒计时 3 秒再跳
-        remain=3;secNum.textContent='3';cd.style.display='';
-        clearInterval(cdTm);cdTm=setInterval(function(){
-          remain--;secNum.textContent=remain;
-          if(remain<=0)run();
-        },1000);
-        setTimeout(run,j.pendingMs||3500);
+        t.textContent='✅ 服务已就绪';
+        tip.textContent='⏳ 正在检测 Bore 隧道连通性…';
+        // 先探测 bore
+        var ok=await probeBore();
+        if(ok){
+          doJump();
+          return;
+        }
+        // bore 不可达 → 显示等待状态，继续轮询探测
+        icon.className='spin';icon.textContent='';
+        t.textContent='⏳ 等待 Bore 隧道';
+        tip.textContent='Codespace 已就绪，Bore 隧道尚未连通，请稍候…';
+        etaTip.textContent='Bore 隧道建立中 · 预计 10–30 秒';
+        // 启动单独的 bore 探测轮询（每 2 秒）
+        if(!window._borePolling){
+          window._borePolling=true;
+          setInterval(async function(){
+            if(boreReady)return;
+            if(await probeBore()){
+              tip.textContent='✅ Bore 隧道就绪，正在跳转…';
+              doJump();
+            }
+          },2000);
+        }
         return;
       }
       if(!started){
@@ -245,11 +284,14 @@ export default async (req) => {
     }
 
     // === 主入口：GET / 或 GET /wake ===
+    // 不再直接 302 跳转，而是返回 HTML 页面，让前端先探测 bore 可达性再跳转
     const { state } = await getCS();
     if (state === 'Available') {
-      return Response.redirect(BORE_URL, 302);
+      // 在 HTML 中前端会先探测 bore 再跳转，避免 bore 未就绪时空白页
+      startCS(); // 确保服务保持运行
+    } else {
+      startCS();
     }
-    startCS();
     return new Response(html(state), {
       status: 202,
       headers: {
