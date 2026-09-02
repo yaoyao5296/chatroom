@@ -32,7 +32,7 @@
     "memory": "4gb",
     "storage": "32gb"
   },
-  "idleTimeout": 240,
+  "idleTimeout": 10,
   "customizations": {
     "vscode": {
       "extensions": ["dbaeumer.vscode-eslint"]
