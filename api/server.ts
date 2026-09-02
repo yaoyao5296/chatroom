@@ -17,6 +17,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { spawn, execSync } from 'child_process'
 import { decryptDatabase, encryptDatabase } from './encrypt.js'
+import { getLastRealAccess } from './middleware/idleTracker.js'
 
 // 第一步：解密数据库（在加载任何数据库模块之前）
 decryptDatabase()
@@ -210,6 +211,44 @@ setTimeout(() => {
   cleanupExpiredCodes()
   setInterval(cleanupExpiredCodes, 30 * 60 * 1000)
 }, 15 * 1000)
+
+// ============ 空闲超时自动停 Codespace（10 分钟无访问） ============
+const IDLE_TIMEOUT_MS = 10 * 60 * 1000  // 10 分钟
+const IDLE_CHECK_INTERVAL = 60 * 1000   // 每分钟检查一次
+const CODESPACE_NAME = process.env.CODESPACE_NAME || ''
+let idleStopRunning = false
+
+function checkIdleAndStop(): void {
+  if (idleStopRunning || !CODESPACE_NAME) return  // 非 Codespace 环境不启用
+
+  const lastAccess = getLastRealAccess()
+  const idleMs = Date.now() - lastAccess
+
+  if (idleMs < IDLE_TIMEOUT_MS) return
+
+  idleStopRunning = true
+  console.log(`[idle-stop] 已空闲 ${Math.round(idleMs / 1000 / 60)} 分钟，超过 10 分钟限制，停止 Codespace...`)
+
+  try {
+    execSync(`gh api -X POST /user/codespaces/${encodeURIComponent(CODESPACE_NAME)}/stop`, {
+      timeout: 15000,
+      stdio: 'pipe',
+      encoding: 'utf-8',
+    })
+    console.log('[idle-stop] Codespace 停止请求已发送')
+  } catch (err: any) {
+    console.log('[idle-stop] 停止失败:', err.message)
+    idleStopRunning = false  // 允许下次重试
+  }
+}
+
+// 启动后 30 秒开始检查，避免启动阶段被误判
+setTimeout(() => {
+  if (CODESPACE_NAME) {
+    console.log(`[idle-stop] 空闲超时检测已启动，Codespace: ${CODESPACE_NAME}，超时: ${IDLE_TIMEOUT_MS / 60000} 分钟`)
+    setInterval(checkIdleAndStop, IDLE_CHECK_INTERVAL)
+  }
+}, 30_000)
 
 // ============ 优雅退出 ============
 let shuttingDown = false
