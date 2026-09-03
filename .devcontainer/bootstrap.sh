@@ -213,7 +213,7 @@ if [ -f ecosystem.config.cjs ]; then
   npx pm2 start ecosystem.config.cjs 2>&1 | tail -3 &
 else
   NODE_ARGS="--max-old-space-size=768 --import tsx"
-  [ -f .env ] && NODE_ARGS="--env-file=.env $NODE_ARGS"
+  # 环境变量通过 devcontainer.json remoteEnv 注入，不需要 --env-file
   npx pm2 start api/server.ts --name chatroom --interpreter node --interpreter-args "$NODE_ARGS" 2>&1 | tail -3 &
 fi
 
