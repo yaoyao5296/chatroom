@@ -7,7 +7,7 @@ import * as cheerio from 'cheerio'
 const router = Router()
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434'
-const AI_MODEL = process.env.AI_MODEL || 'qwen2:0.5b'
+const AI_MODEL = process.env.AI_MODEL || 'qwen2.5:1.5b'
 const SEARCH_TIMEOUT = 8000
 
 const SYSTEM_PROMPT = `你是"屿岸"，一个友好、热心的AI助手。你有联网搜索能力，当用户需要最新信息时，你会参考搜索结果来回答。
