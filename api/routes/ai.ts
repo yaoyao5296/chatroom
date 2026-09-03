@@ -10,14 +10,14 @@ const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434'
 const AI_MODEL = process.env.AI_MODEL || 'qwen2.5:1.5b'
 const SEARCH_TIMEOUT = 8000
 
-const SYSTEM_PROMPT = `你是"屿岸"，一个友好、热心的AI助手。你有联网搜索能力，当用户需要最新信息时，你会参考搜索结果来回答。
+const SYSTEM_PROMPT = `你是"屿岸"，一个友好、热心的AI助手。你有联网搜索能力。
 
-回答规则：
-- 用自然流畅的中文回复
-- 如果参考了搜索结果，在回答末尾注明来源链接
-- 简洁直接，像朋友聊天一样自然
-- 尽量控制在300字以内
-- 如果搜索结果不足以回答，如实告诉用户`
+## 回答规则
+- 用自然流畅的中文回复，简洁直接，像朋友聊天一样
+- **如果用户消息中包含【联网搜索结果】，你必须基于这些搜索结果来回答，不能忽略它们**
+- 在回答末尾注明来源链接（如果有）
+- 如果搜索结果中没有相关信息，才用自己的知识回答
+- 尽量控制在300字以内`
 
 // 对话历史存储（按会话ID，最多保留最近20轮）
 const sessions = new Map<string, Array<{ role: string; content: string }>>()
@@ -187,8 +187,8 @@ router.post('/chat', async (req: Request, res: Response) => {
       const searchResult = await webSearch(message)
       console.log(`[ai] 搜索结果: ${searchResult.slice(0, 100)}...`)
 
-      // 搜索结果作为上下文注入
-      userMsg = `用户问题：${message.trim()}\n\n【联网搜索结果】\n${searchResult}\n\n请根据以上搜索结果回答用户问题。如果搜索结果与问题无关，请直接用自己的知识回答。`
+      // 搜索结果作为上下文注入（标记清晰，让模型无法忽略）
+      userMsg = `【用户问题】${message.trim()}\n\n【联网搜索结果】\n${searchResult}\n\n---\n请基于以上【联网搜索结果】来回答用户问题。如果搜索结果充分，直接给出答案；如果不够充分，先用自己的知识补充，再说明哪些信息来自搜索。`
     }
 
     messages.push({ role: 'user', content: userMsg })
