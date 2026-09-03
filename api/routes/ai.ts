@@ -58,20 +58,37 @@ async function webSearch(query: string): Promise<string> {
   async function tryBing(): Promise<boolean> {
     try {
       const r = await fetch(
-        `https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=zh-Hans`,
-        { headers: { 'User-Agent': UA, Accept: 'text/html', 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8' }, signal: AbortSignal.timeout(SEARCH_TIMEOUT) },
+        `https://www.bing.com/search?q=${encodeURIComponent(query)}&mkt=zh-CN`,
+        {
+          headers: {
+            'User-Agent': UA,
+            'Accept': 'text/html',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+            'Accept-Encoding': 'gzip',
+          },
+          signal: AbortSignal.timeout(SEARCH_TIMEOUT),
+        },
       )
       if (!r.ok) return false
       const html = await r.text()
       const $ = cheerio.load(html)
       let n = 0
-      $('#b_results > li.b_algo').each((_, el) => {
+      $('li.b_algo').each((_, el) => {
         if (n >= 6) return
-        const title = $(el).find('h2 a').text().trim()
-        const snippet = $(el).find('.b_caption p').text().trim()
+        const title = $(el).find('h2').text().trim()
+        const snippet = $(el).find('.b_caption .b_lineclamp2, .b_caption p').text().trim()
         const url = $(el).find('h2 a').attr('href') || ''
-        if (title && snippet) { results.push(`[${title}](${url})\n${snippet}`); n++ }
+        if (title && snippet && snippet.length > 10) { results.push(`[${title}](${url})\n${snippet}`); n++ }
       })
+      // 捞不到就捞所有 h2 链接
+      if (n === 0) {
+        $('h2 a').each((_, el) => {
+          if (n >= 6) return
+          const t = $(el).text().trim()
+          const h = $(el).attr('href') || ''
+          if (t && h.startsWith('http')) { results.push(`${t}: ${h}`); n++ }
+        })
+      }
       return n > 0
     } catch { return false }
   }
@@ -80,25 +97,24 @@ async function webSearch(query: string): Promise<string> {
   if (await tryDuckDuckGo()) { /* ok */ }
   else if (await tryBing()) { console.log('[ai/search] 使用 Bing 搜索'); /* ok */ }
   else {
-    // 最后尝试：Bing 简单提取
+    // 最后尝试：DuckDuckGo 精简版
     try {
       const r = await fetch(
-        `https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=zh-Hans`,
+        `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`,
         { headers: { 'User-Agent': UA, Accept: 'text/html' }, signal: AbortSignal.timeout(SEARCH_TIMEOUT) },
       )
-      const html = await r.text()
-      const $ = cheerio.load(html)
-      let n = 0
-      $('li.b_algo h2 a').each((_, el) => {
-        if (n >= 6) return
-        const t = $(el).text().trim()
-        const h = $(el).attr('href') || ''
-        if (t) { results.push(`${t}: ${h}`); n++ }
-      })
-    } catch (err: any) {
-      console.error(`[ai/search] 搜索失败: ${err.message}`)
-      return `[搜索服务暂时不可用: ${err.message}]`
-    }
+      if (r.ok) {
+        const html = await r.text()
+        const $ = cheerio.load(html)
+        let n = 0
+        $('a[href^="http"]').each((_, el) => {
+          if (n >= 6) return
+          const t = $(el).text().trim()
+          const h = $(el).attr('href') || ''
+          if (t && t.length > 10 && !h.includes('duckduckgo.com')) { results.push(`${t}: ${h}`); n++ }
+        })
+      }
+    } catch { /* ignore */ }
   }
 
   const top = results.slice(0, 6)
