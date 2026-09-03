@@ -45,5 +45,17 @@ while true; do
     npx pm2 start /usr/local/bin/bore --name bore --interpreter none -- local 3001 --to bore.pub --port 31425 2>&1 | tail -1
   fi
 
+  # Ollama 健康检查
+  if command -v ollama >/dev/null 2>&1; then
+    OLLAMA_OK=0
+    curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && OLLAMA_OK=1
+    if [ "$OLLAMA_OK" = "0" ]; then
+      echo "[watchdog $NOW] ⚠ Ollama 未响应，重启..."
+      npx pm2 delete ollama 2>/dev/null || true
+      sleep 1
+      npx pm2 start ollama --name ollama --interpreter none -- serve 2>&1 | tail -1
+    fi
+  fi
+
   sleep 30
 done

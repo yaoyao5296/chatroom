@@ -1,14 +1,12 @@
 /**
- * AI 问答路由 —— 直接调用 GitHub Models API
- * 使用 Node 18+ 内置 fetch（无需 node-fetch）
+ * AI 问答路由 —— 调用本地 Ollama 模型
  */
 import { Router, type Request, type Response } from 'express'
 
 const router = Router()
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN || ''
-const AI_MODEL = process.env.AI_MODEL || 'gpt-4o-mini'
-const API_URL = 'https://models.inference.ai.azure.com/chat/completions'
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434'
+const AI_MODEL = process.env.AI_MODEL || 'qwen2:0.5b'
 
 const SYSTEM_PROMPT = `你是"屿岸"，一个友好、热心的AI助手。请用自然流畅的中文回复用户。回答风格：简洁直接，像朋友聊天一样自然，不要啰嗦。尽量保持回复在300字以内。`
 
@@ -19,12 +17,16 @@ const MAX_HISTORY = 20
 /**
  * 检查服务状态
  */
-router.get('/status', (_req: Request, res: Response) => {
-  if (!GITHUB_TOKEN) {
-    res.json({ success: false, error: 'GITHUB_TOKEN 未配置' })
-    return
+router.get('/status', async (_req: Request, res: Response) => {
+  try {
+    const r = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) })
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    const data = await r.json() as any
+    const models = (data.models || []).map((m: any) => m.name)
+    res.json({ success: true, model: AI_MODEL, local: true, models, message: '本地 AI 服务就绪' })
+  } catch {
+    res.json({ success: false, error: 'Ollama 服务未运行', local: true })
   }
-  res.json({ success: true, model: AI_MODEL, message: 'AI 服务就绪' })
 })
 
 /**
@@ -36,11 +38,6 @@ router.post('/chat', async (req: Request, res: Response) => {
 
     if (!message || !message.trim()) {
       res.status(400).json({ success: false, error: '请输入消息' })
-      return
-    }
-
-    if (!GITHUB_TOKEN) {
-      res.status(500).json({ success: false, error: 'AI 服务未配置（缺少 GITHUB_TOKEN）' })
       return
     }
 
@@ -62,30 +59,30 @@ router.post('/chat', async (req: Request, res: Response) => {
 
     console.log(`[ai] 收到消息: ${message.trim().slice(0, 50)}...`)
 
-    const response = await fetch(API_URL, {
+    const response = await fetch(`${OLLAMA_URL}/api/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${GITHUB_TOKEN}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: AI_MODEL,
         messages,
-        temperature: 0.7,
-        max_tokens: 800,
+        stream: false,
+        options: {
+          temperature: 0.7,
+          num_predict: 800,
+        },
       }),
-      timeout: 60000,
+      signal: AbortSignal.timeout(60000),
     })
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '')
-      console.error('[ai] API 错误:', response.status, errText.slice(0, 200))
+      console.error('[ai] Ollama 错误:', response.status, errText.slice(0, 200))
       res.status(500).json({ success: false, error: `AI 服务返回错误 (${response.status})` })
       return
     }
 
     const data = await response.json() as any
-    const reply = data?.choices?.[0]?.message?.content || ''
+    const reply = data?.message?.content || ''
 
     if (!reply) {
       res.status(500).json({ success: false, error: 'AI 未返回有效回复' })

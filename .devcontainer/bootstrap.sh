@@ -189,12 +189,25 @@ if [ -n "$CODESPACE_NAME" ] && [ "$CODESPACE_NAME" != "unknown" ]; then
   fi
 fi
 
-# 并行启动 Redis 和 chatroom（chatroom 内部会重试连接 Redis，无需等 Redis 就绪）
-echo "[bootstrap] 并行启动 Redis + chatroom"
+# 并行启动 Redis + Ollama + chatroom
+echo "[bootstrap] 并行启动 Redis + Ollama + chatroom"
 if command -v redis-server >/dev/null 2>&1; then
   npx pm2 start redis-server --name redis --interpreter none \
     -- --port 6379 --bind 127.0.0.1 --daemonize no --save "" --appendonly no \
     --dir "$ROOT/.redis-data" --maxmemory 64mb --maxmemory-policy allkeys-lru 2>&1 | tail -2
+fi
+# 启动 Ollama 本地 AI 模型服务
+if command -v ollama >/dev/null 2>&1; then
+  npx pm2 delete ollama 2>/dev/null || true
+  npx pm2 start ollama --name ollama --interpreter none -- serve 2>&1 | tail -2
+  echo "[bootstrap] Ollama 启动中，等待就绪..."
+  for i in $(seq 1 15); do
+    if curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+      echo "[bootstrap] ✓ Ollama 就绪（用时 ${i}s）"
+      break
+    fi
+    sleep 1
+  done
 fi
 if [ -f ecosystem.config.cjs ]; then
   npx pm2 start ecosystem.config.cjs 2>&1 | tail -3 &
