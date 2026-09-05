@@ -20,6 +20,12 @@ export PATH
 # 导入环境变量
 [ -f .env ] && export $(grep -v '^#' .env | xargs 2>/dev/null) || true
 
+# ============ 空闲超时配置（双重保障） ============
+# 默认 10 分钟，可通过环境变量 WATCHDOG_IDLE_MINUTES 覆盖（用于测试）
+IDLE_TIMEOUT_MINUTES="${WATCHDOG_IDLE_MINUTES:-10}"
+IDLE_TIMEOUT_MS=$((IDLE_TIMEOUT_MINUTES * 60 * 1000))
+echo "[watchdog] 空闲超时阈值: ${IDLE_TIMEOUT_MINUTES} 分钟 (${IDLE_TIMEOUT_MS}ms)"
+
 while true; do
   # 检查服务是否就绪
   CHATROOM_OK=0
@@ -54,6 +60,30 @@ while true; do
       npx pm2 delete ollama 2>/dev/null || true
       sleep 1
       npx pm2 start ollama --name ollama --interpreter none -- serve 2>&1 | tail -1
+    fi
+  fi
+
+  # ============ 空闲超时检测（双重保障） ============
+  # 读取 last-access.json 检查空闲时间，与应用层（server.ts）形成双重保障
+  # 即使 Node.js 进程崩溃，watchdog 仍然能检测并停止 Codespace
+  LAST_ACCESS_FILE="$ROOT/data/last-access.json"
+  if [ -f "$LAST_ACCESS_FILE" ] && [ -n "${CODESPACE_NAME:-}" ]; then
+    # 提取 lastRealAccess 时间戳（毫秒）
+    LAST_ACCESS=$(sed -n 's/.*"lastRealAccess": *\([0-9]*\).*/\1/p' "$LAST_ACCESS_FILE" 2>/dev/null || echo "")
+    if [ -n "$LAST_ACCESS" ]; then
+      NOW_MS=$(($(date +%s) * 1000))
+      IDLE_MS=$((NOW_MS - LAST_ACCESS))
+      if [ "$IDLE_MS" -gt "$IDLE_TIMEOUT_MS" ]; then
+        echo "[watchdog $NOW] ⚠ 空闲超时（${IDLE_MS}ms > ${IDLE_TIMEOUT_MS}ms），停止 Codespace: ${CODESPACE_NAME}"
+        if gh api -X POST "/user/codespaces/${CODESPACE_NAME}/stop" --silent 2>/dev/null; then
+          echo "[watchdog $NOW] ✓ Codespace 停止请求已发送"
+          # 清理状态文件，避免下次启动加载旧数据
+          rm -f "$LAST_ACCESS_FILE"
+        else
+          echo "[watchdog $NOW] ⚠ 停止请求失败（可能已停止或无权限）"
+        fi
+        # 避免重复发送停止请求，等下次循环再检查
+      fi
     fi
   fi
 
