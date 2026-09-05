@@ -230,14 +230,16 @@ function checkIdleAndStop(): void {
   console.log(`[idle-stop] 已空闲 ${Math.round(idleMs / 1000 / 60)} 分钟，超过 10 分钟限制，停止 Codespace...`)
 
   try {
-    execSync(`gh api -X POST /user/codespaces/${encodeURIComponent(CODESPACE_NAME)}/stop`, {
+    const result = execSync(`gh api -X POST /user/codespaces/${encodeURIComponent(CODESPACE_NAME)}/stop`, {
       timeout: 15000,
       stdio: 'pipe',
       encoding: 'utf-8',
     })
     console.log('[idle-stop] Codespace 停止请求已发送')
+    // 清理 idledTracker 文件，避免下次启动加载旧数据
+    try { execSync('rm -f data/last-access.json', { stdio: 'ignore' }) } catch {}
   } catch (err: any) {
-    console.log('[idle-stop] 停止失败:', err.message)
+    console.log('[idle-stop] 停止失败:', err.stderr?.trim() || err.message)
     idleStopRunning = false  // 允许下次重试
   }
 }

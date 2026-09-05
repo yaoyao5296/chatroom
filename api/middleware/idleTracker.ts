@@ -139,25 +139,9 @@ function flushToDisk(): void {
   }
 }
 
-// 启动时加载状态
-loadState()
-
-// 进程退出时强制落盘，防止数据丢失
-function flushOnExit(): void {
-  if (flushTimer) {
-    clearTimeout(flushTimer)
-    flushTimer = null
-  }
-  flushToDisk()
-}
-process.on('SIGTERM', flushOnExit)
-process.on('SIGINT', flushOnExit)
-process.on('beforeExit', flushOnExit)
-
-// 每 30 秒兜底落盘一次（防止 debounce 计时器因事件循环空闲而延迟）
-setInterval(() => {
-  if (dirty) flushToDisk()
-}, 30_000).unref()
+// 不再从磁盘加载旧状态，每次启动都从当前时间算起
+// 避免服务重启后因加载旧时间戳立即触发空闲超时
+console.log(`[idleTracker] 初始状态：最后访问 ${new Date(cachedState.lastRealAccess).toISOString()}`)
 
 // ============ 中间件 ============
 export function idleTracker(req: Request, _res: Response, next: NextFunction): void {
