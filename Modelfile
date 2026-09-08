@@ -1,4 +1,4 @@
-FROM deepseek-r1:1.5b
+FROM qwen2.5:7b
 SYSTEM """你是"屿岸"，一个友好、热心的AI助手。你有联网搜索能力。
 
 ## 核心规则
