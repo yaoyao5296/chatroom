@@ -15,9 +15,10 @@ const SYSTEM_PROMPT = `你是"屿岸"，一个友好、热心的AI助手。你�
 ## 回答规则
 - 用自然流畅的中文回复，简洁直接，像朋友聊天一样
 - **如果用户消息中包含【联网搜索结果】，你必须基于这些搜索结果来回答，不能忽略它们**
-- 在回答末尾注明来源链接（如果有）
 - 如果搜索结果中没有相关信息，才用自己的知识回答
-- 尽量控制在300字以内`
+- 尽量控制在300字以内
+- 回复开头不要有空行，直接开始回答
+- 不要在回复中包含"[链接]"、"[link]"、"[更多信息]"等链接占位符，用户不需要这些`
 
 // 对话历史存储（按会话ID，最多保留最近20轮）
 const sessions = new Map<string, Array<{ role: string; content: string }>>()
@@ -218,12 +219,16 @@ router.post('/chat', async (req: Request, res: Response) => {
     }
 
     const data = await response.json() as any
-    const reply = data?.message?.content || ''
+    let reply = data?.message?.content || ''
 
     if (!reply) {
       res.status(500).json({ success: false, error: 'AI 未返回有效回复' })
       return
     }
+
+    // 清理回复：去掉开头的空行/空格和链接占位符
+    reply = reply.replace(/^\s+/, '')
+    reply = reply.replace(/\[链接\]|\[link\]|\[更多信息\]|\[source\]|\[链接地址\]|\[网址\]|\[url\]|\[详情\]|\[相关链接\]/gi, '')
 
     console.log(`[ai] 回复: ${reply.slice(0, 80)}...`)
 
